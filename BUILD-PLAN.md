@@ -118,3 +118,19 @@ Chris's own repos are backups (allowed). GitHub renames + any release wait for C
 
 - 2026-09-23: shared contract `fullcircle/finding.py` BUILT, selftest PASS. Plan written. Refinements
   1-7 locked. Corroboration prompt for main system written.
+- 2026-09-23 (overnight): DONE + selftest PASS for four modules:
+  * `fullcircle/finding.py` — Finding + triangulate() + method_disagreements() (the corroboration engine).
+  * `fullcircle/concepts.py` — behavioural concept classifier + learned label/definition map + synonym
+    tool (refinement 2). Label-independence PROVEN: rename every symbol, classification unchanged.
+  * `claimproof/src/claimproof/multimethod.py` — multi-method silent engine, class 'test-cannot-fail'
+    with 2 independent methods (weak-oracle + return-ignored). Validated on REAL carrot-sandbox:
+    3 planted dead canaries caught, 0 false positives after calibrating 'test' = runner-collectable
+    (fixed an over-fire on a helper `_score` and a miss on `test_sync: assert True`). CLI + SARIF added.
+  * `fullcircle/drift_guard.py` — the 4 contract copies must stay byte-identical ('count the doors').
+  Local feature-branch commits on claimproof (feat/multimethod-corroboration) + git-init on
+  full-circle-optimization-work. NOTHING PUSHED (release hold + not yet 100% across test bed).
+  Plan items advanced: shared contract (done), A2/A3 core (done, needs wiring into FULL-RESET-GRAPH),
+  B1 (done), B2 (1 of N classes done; mutation method still owed), refinement-7 SARIF (started), D4 (done).
+  OWED next: renames (local+package), FULL-RESET-GRAPH structural detectors (unwired/conflicts/
+  second-door), more silent classes + mutation method, repo-3 eight checks, repo-4 adapter+loop,
+  the full test bed (3 levels, renamed fixture at system scale, old versions, agent-tier, LIVE).
