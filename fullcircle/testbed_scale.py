@@ -115,7 +115,7 @@ def _p_bareexcept(root, rng):
 
 def _p_leak(root, rng):
     t = _tok(rng)
-    _w(root, "lk_%s.py" % t, "def lk_%s():\n    data_%s = open('f').read()\n    return data_%s\nlk_%s()\n" % (t, t, t, t))
+    _w(root, "lk_%s.py" % t, "def lk_%s():\n    open('f')\n    return 1\nlk_%s()\n" % (t, t))
     return ("resource-leak", "lk_%s.py" % t)
 
 

@@ -38,12 +38,18 @@ def _skip_dir(d: str) -> bool:
 
 
 def _walk(root, exts=None):
-    for dirpath, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if not _skip_dir(d)]
-        for fn in files:
+    seen = set()                                          # dedupe by REAL path: a file reached via a
+    for dirpath, dirs, files in os.walk(root):            # symlink (e.g. a by-kind/ mirror) is one file,
+        dirs[:] = [d for d in dirs if not _skip_dir(d)]   # not two -- else the tool commits its own
+        for fn in files:                                  # two-paths defect (measured on ~/Tools 2026-09-23)
             if exts and not fn.endswith(exts):
                 continue
-            yield os.path.join(dirpath, fn)
+            p = os.path.join(dirpath, fn)
+            rp = os.path.realpath(p)
+            if rp in seen:
+                continue
+            seen.add(rp)
+            yield p
 
 
 # ---------------------------------------------------------------- second-door duplicate files
@@ -472,20 +478,20 @@ def _resource_leak(root: str) -> list[Finding]:
         except (SyntaxError, ValueError, OSError):
             continue
         for node in ast.walk(tree):
-            call = None
-            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Call):
-                call = node.value                          # open(f).read()
-            elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-                call = node.value                          # bare open(f)
-            if call and isinstance(call.func, ast.Name) and call.func.id == "open":
-                ln = getattr(call, "lineno", 0)
-                out.append(Finding(
-                    concept="read", defect_class="resource-leak", location="%s:%d" % (rel, ln),
-                    signal="open() handle is discarded/chained, never closed and not in a `with`",
-                    evidence="the file descriptor leaks",
-                    method="open-not-managed", repo="full-reset-graph", severity="med",
-                    confidence=0.75, both_directions_proven=True,
-                    extra={"id_key": "leak:%s:%d" % (rel, ln)}))
+            # ONLY the unambiguous case: open() as a bare statement, result fully discarded. The
+            # `open(f).read()` chain is technically a leak too but is ubiquitous and minor, so it is
+            # deliberately NOT flagged (measured 1,530 noise hits on the real system 2026-09-23).
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+                call = node.value
+                if isinstance(call.func, ast.Name) and call.func.id == "open":
+                    ln = getattr(call, "lineno", 0)
+                    out.append(Finding(
+                        concept="read", defect_class="resource-leak", location="%s:%d" % (rel, ln),
+                        signal="open() called as a bare statement -- the handle is discarded, never closed",
+                        evidence="the file descriptor leaks and nothing ever reads or closes it",
+                        method="open-discarded", repo="full-reset-graph", severity="med",
+                        confidence=0.8, both_directions_proven=True,
+                        extra={"id_key": "leak:%s:%d" % (rel, ln)}))
     return out
 
 
