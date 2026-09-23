@@ -125,9 +125,28 @@ def _p_shadow(root, rng):
     return ("shadowed-builtin", "sh_%s.py" % t)
 
 
+def _p_assertconst(root, rng):
+    t = _tok(rng)
+    _w(root, "ac_%s.py" % t, "def ac_%s():\n    assert True\n    return 1\nac_%s()\n" % (t, t))
+    return ("assert-constant-in-production", "ac_%s.py" % t)
+
+
+def _p_unreachexc(root, rng):
+    t = _tok(rng)
+    _w(root, "ue_%s.py" % t, "def ue_%s():\n    try:\n        x()\n    except Exception:\n        raise\n    except ValueError:\n        return 2\nue_%s()\n" % (t, t))
+    return ("unreachable-except", "ue_%s.py" % t)
+
+
+def _p_prednone(root, rng):
+    t = _tok(rng)
+    _w(root, "pn_%s.py" % t, "def is_%s(v):\n    if v:\n        return True\nis_%s(1)\n" % (t, t))
+    return ("predicate-returns-none", "is_%s" % t)
+
+
 PLANTERS = [_p_dead_test, _p_swallow, _p_gate, _p_dup, _p_conflict, _p_unwired, _p_stub,
             _p_deadcode, _p_unusedimport, _p_mutabledefault,
-            _p_bareexcept, _p_leak, _p_shadow]
+            _p_bareexcept, _p_leak, _p_shadow,
+            _p_assertconst, _p_unreachexc, _p_prednone]
 
 
 def _controls(root, rng):
@@ -145,6 +164,8 @@ def _controls(root, rng):
        "def validate_%s(t):\n    if not t:\n        raise ValueError('x')\n    return t\nvalidate_%s('a')\n" % (c, c))
     c = _tok(rng); toks.append(c)     # a lone constant (no conflict)
     _w(root, "const_%s.py" % c, "ONE_%s = 1\n" % c)
+    c = _tok(rng); toks.append(c)     # a real predicate that always returns bool
+    _w(root, "pred_%s.py" % c, "def is_ok_%s(v):\n    return bool(v)\nis_ok_%s(1)\n" % (c, c))
     return toks
 
 
@@ -224,6 +245,7 @@ GLOSS = {
     "bare-except": "except: with no type, swallowing Ctrl-C and clean exits",
     "resource-leak": "open() whose file handle is never closed",
     "shadowed-builtin": "a module name that shadows a builtin like list/dict",
+    "predicate-returns-none": "a predicate that can fall through to None instead of a bool",
 }
 
 
