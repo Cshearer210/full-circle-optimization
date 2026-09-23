@@ -88,7 +88,46 @@ def _p_stub(root, rng):
     return ("stub-implementation", "do_%s" % t)
 
 
-PLANTERS = [_p_dead_test, _p_swallow, _p_gate, _p_dup, _p_conflict, _p_unwired, _p_stub]
+
+def _p_deadcode(root, rng):
+    t = _tok(rng)
+    _w(root, "dc_%s.py" % t, "def dc_%s():\n    return 1\n    unreachable_%s = 2\ndc_%s()\n" % (t, t, t))
+    return ("dead-code", "dc_%s.py" % t)
+
+
+def _p_unusedimport(root, rng):
+    t = _tok(rng)
+    _w(root, "ui_%s.py" % t, "import json\ndef u_%s():\n    return 1\nu_%s()\n" % (t, t))
+    return ("unused-import", "ui_%s.py" % t)
+
+
+def _p_mutabledefault(root, rng):
+    t = _tok(rng)
+    _w(root, "md_%s.py" % t, "def md_%s(x=[]):\n    return x\nmd_%s()\n" % (t, t))
+    return ("mutable-default-arg", "md_%s" % t)
+
+
+def _p_bareexcept(root, rng):
+    t = _tok(rng)
+    _w(root, "be_%s.py" % t, "def be_%s():\n    try:\n        x()\n    except:\n        return 1\nbe_%s()\n" % (t, t))
+    return ("bare-except", "be_%s.py" % t)
+
+
+def _p_leak(root, rng):
+    t = _tok(rng)
+    _w(root, "lk_%s.py" % t, "def lk_%s():\n    data_%s = open('f').read()\n    return data_%s\nlk_%s()\n" % (t, t, t, t))
+    return ("resource-leak", "lk_%s.py" % t)
+
+
+def _p_shadow(root, rng):
+    t = _tok(rng)
+    _w(root, "sh_%s.py" % t, "list = [1, 2, 3]\nUSE_%s = list\n" % t)
+    return ("shadowed-builtin", "sh_%s.py" % t)
+
+
+PLANTERS = [_p_dead_test, _p_swallow, _p_gate, _p_dup, _p_conflict, _p_unwired, _p_stub,
+            _p_deadcode, _p_unusedimport, _p_mutabledefault,
+            _p_bareexcept, _p_leak, _p_shadow]
 
 
 def _controls(root, rng):
@@ -179,6 +218,12 @@ GLOSS = {
     "conflicting-definition": "one constant, different values in two files",
     "function-unwired": "a function defined and complete that nothing calls",
     "stub-implementation": "a pass/NotImplementedError stub that other code already calls",
+    "dead-code": "a statement after a return/raise that can never run",
+    "unused-import": "an imported name that is never used",
+    "mutable-default-arg": "a [] or {} default argument shared across calls",
+    "bare-except": "except: with no type, swallowing Ctrl-C and clean exits",
+    "resource-leak": "open() whose file handle is never closed",
+    "shadowed-builtin": "a module name that shadows a builtin like list/dict",
 }
 
 

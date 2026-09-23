@@ -327,11 +327,212 @@ def _stub_implementation(root: str) -> list[Finding]:
     return out
 
 
+_TERMINALS = (ast.Return, ast.Raise, ast.Break, ast.Continue)
+
+
+def _dead_code(root: str) -> list[Finding]:
+    """A statement that follows an unconditional return/raise/break/continue in the same block --
+    it can never run. Fix: remove it, or fix the control flow that made it unreachable."""
+    out = []
+    for path in _walk(root, (".py",)):
+        rel = os.path.relpath(path, root)
+        try:
+            tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
+        except (SyntaxError, ValueError, OSError):
+            continue
+        for node in ast.walk(tree):
+            for attr in ("body", "orelse", "finalbody"):
+                body = getattr(node, attr, None)
+                if not isinstance(body, list):
+                    continue
+                for i, stmt in enumerate(body[:-1]):
+                    if isinstance(stmt, _TERMINALS):
+                        nxt = body[i + 1]
+                        ln = getattr(nxt, "lineno", getattr(stmt, "lineno", 0))
+                        out.append(Finding(
+                            concept="wire", defect_class="dead-code",
+                            location="%s:%d" % (rel, ln),
+                            signal="statement follows an unconditional %s" % type(stmt).__name__.lower(),
+                            evidence="this line can never run",
+                            method="after-terminal", repo="full-reset-graph", severity="med",
+                            confidence=0.85, both_directions_proven=True,
+                            extra={"id_key": "dead:%s:%d" % (rel, ln)}))
+                        break
+    return out
+
+
+def _unused_import(root: str) -> list[Finding]:
+    """An imported name never referenced in the file. Fix: remove it (or actually use it)."""
+    out = []
+    for path in _walk(root, (".py",)):
+        rel = os.path.relpath(path, root)
+        if os.path.basename(path) == "__init__.py":       # __init__ re-exports; do not flag
+            continue
+        try:
+            src = open(path, encoding="utf-8", errors="replace").read()
+            tree = ast.parse(src)
+        except (SyntaxError, ValueError, OSError):
+            continue
+        imported, exports, star = {}, set(), False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for a in node.names:
+                    imported[a.asname or a.name.split(".")[0]] = node.lineno
+            elif isinstance(node, ast.ImportFrom):
+                if any(a.name == "*" for a in node.names):
+                    star = True
+                else:
+                    for a in node.names:
+                        imported[a.asname or a.name] = node.lineno
+            elif isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and t.id == "__all__" and \
+                            isinstance(node.value, (ast.List, ast.Tuple)):
+                        for e in node.value.elts:
+                            if isinstance(e, ast.Constant) and isinstance(e.value, str):
+                                exports.add(e.value)
+        if star:                                           # a star import may use anything; skip file
+            continue
+        used, strtok = set(), set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                used.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                used.add(node.attr)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                strtok.update(_WORD.findall(node.value))   # forward-ref type hints live in strings
+        for name, ln in imported.items():
+            if name in used or name in exports or name in strtok or name == "annotations":
+                continue
+            out.append(Finding(
+                concept="wire", defect_class="unused-import", location="%s:%d" % (rel, ln),
+                signal="imported name '%s' is never referenced" % name,
+                evidence="a dead import adds noise and a false dependency",
+                method="import-never-used", repo="full-reset-graph", severity="low",
+                confidence=0.8, both_directions_proven=True,
+                extra={"id_key": "unusedimp:%s:%s" % (rel, name)}, ignored_label=name))
+    return out
+
+
+def _mutable_default(root: str) -> list[Finding]:
+    """A function default that is a mutable literal ([], {}, set()) -- it is shared across calls and
+    accumulates state. Fix: default to None and build the container inside the function."""
+    out = []
+    for path in _walk(root, (".py",)):
+        rel = os.path.relpath(path, root)
+        try:
+            tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
+        except (SyntaxError, ValueError, OSError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for d in list(node.args.defaults) + list(node.args.kw_defaults):
+                    if isinstance(d, (ast.List, ast.Dict, ast.Set)):
+                        ln = getattr(d, "lineno", node.lineno)
+                        out.append(Finding(
+                            concept="definition", defect_class="mutable-default-arg",
+                            location="%s:%d" % (rel, ln),
+                            signal="a %s literal is a default argument" % type(d).__name__.lower(),
+                            evidence="the same mutable object is reused across every call to %s" % node.name,
+                            method="mutable-literal-default", repo="full-reset-graph", severity="med",
+                            confidence=0.9, both_directions_proven=True,
+                            extra={"id_key": "mutdef:%s:%s" % (rel, node.name)}, ignored_label=node.name))
+    return out
+
+
+def _bare_except(root: str) -> list[Finding]:
+    """`except:` with no type catches EVERYTHING -- including KeyboardInterrupt and SystemExit, so
+    Ctrl-C and a clean exit get swallowed. Fix: catch `Exception`, or the specific error(s)."""
+    out = []
+    for path in _walk(root, (".py",)):
+        rel = os.path.relpath(path, root)
+        try:
+            tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
+        except (SyntaxError, ValueError, OSError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ExceptHandler) and node.type is None:
+                out.append(Finding(
+                    concept="read", defect_class="bare-except", location="%s:%d" % (rel, node.lineno),
+                    signal="a bare 'except:' catches everything, incl. KeyboardInterrupt/SystemExit",
+                    evidence="Ctrl-C and clean exits get caught here too",
+                    method="bare-except", repo="full-reset-graph", severity="med", confidence=0.85,
+                    both_directions_proven=True, extra={"id_key": "bareexc:%s:%d" % (rel, node.lineno)}))
+    return out
+
+
+def _resource_leak(root: str) -> list[Finding]:
+    """`open(...)` whose handle is discarded or method-chained (never closed, not in a `with`) --
+    the file descriptor leaks. Fix: use `with open(...) as f:`, or close it in a finally."""
+    out = []
+    for path in _walk(root, (".py",)):
+        rel = os.path.relpath(path, root)
+        try:
+            tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
+        except (SyntaxError, ValueError, OSError):
+            continue
+        for node in ast.walk(tree):
+            call = None
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Call):
+                call = node.value                          # open(f).read()
+            elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+                call = node.value                          # bare open(f)
+            if call and isinstance(call.func, ast.Name) and call.func.id == "open":
+                ln = getattr(call, "lineno", 0)
+                out.append(Finding(
+                    concept="read", defect_class="resource-leak", location="%s:%d" % (rel, ln),
+                    signal="open() handle is discarded/chained, never closed and not in a `with`",
+                    evidence="the file descriptor leaks",
+                    method="open-not-managed", repo="full-reset-graph", severity="med",
+                    confidence=0.75, both_directions_proven=True,
+                    extra={"id_key": "leak:%s:%d" % (rel, ln)}))
+    return out
+
+
+_SHADOWABLE = {"list", "dict", "set", "tuple", "str", "int", "float", "open", "type", "input",
+               "filter", "map", "sum", "max", "min", "id", "bytes", "range", "object", "format"}
+
+
+def _shadowed_builtin(root: str) -> list[Finding]:
+    """A MODULE-LEVEL name (or a def) that shadows a builtin -- calling that builtin later in the
+    module then breaks. Fix: rename. (Function-local shadowing is skipped -- it is common and scoped.)"""
+    out = []
+    for path in _walk(root, (".py",)):
+        rel = os.path.relpath(path, root)
+        try:
+            tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
+        except (SyntaxError, ValueError, OSError):
+            continue
+        for node in tree.body:                             # MODULE level only (precision)
+            names = []
+            if isinstance(node, ast.Assign):
+                names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names = [node.name]
+            for nm in names:
+                if nm in _SHADOWABLE:
+                    out.append(Finding(
+                        concept="definition", defect_class="shadowed-builtin",
+                        location="%s:%d" % (rel, node.lineno),
+                        signal="module-level name '%s' shadows a builtin" % nm,
+                        evidence="calling the builtin %s() later in this module now breaks" % nm,
+                        method="shadows-builtin", repo="full-reset-graph", severity="low",
+                        confidence=0.7, both_directions_proven=True,
+                        extra={"id_key": "shadow:%s:%s" % (rel, nm)}, ignored_label=nm))
+    return out
+
+
 DETECTORS = {
     "second-door-duplicate": [_second_door],
     "conflicting-definition": [_conflicting_definition],
     "function-unwired": [_unwired_function],
     "stub-implementation": [_stub_implementation],
+    "dead-code": [_dead_code],
+    "unused-import": [_unused_import],
+    "mutable-default-arg": [_mutable_default],
+    "bare-except": [_bare_except],
+    "resource-leak": [_resource_leak],
+    "shadowed-builtin": [_shadowed_builtin],
 }
 
 
