@@ -231,6 +231,72 @@ def selftest() -> int:
         shutil.rmtree(d1, ignore_errors=True)
         shutil.rmtree(d2, ignore_errors=True)
 
+
+    # --- mutation-hardening assertions (fable, 2026-09-23) ---
+    # kills: line 58 (has_if = True -> False): the in-branch assignment; guarded_raise never gets set, so an if-guarded raise stops classifying as a gate. Selftest only tests the sys.exit gate path, never guarded_raise.
+    import ast as _ast
+    _fn = next(n for n in _ast.walk(_ast.parse("def g(x):\n    if not x:\n        raise ValueError('bad')\n")) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)))
+    if classify_function(_fn) != "gate":
+        print("FAIL: if-guarded raise not classified as gate ->", classify_function(_fn)); ok = False
+
+    # kills: line 75 (has_if = False -> True): the initialiser; has_if is always True, so any function containing a raise (even unconditional) becomes guarded_raise -> gate.
+    import ast as _ast
+    _fn = next(n for n in _ast.walk(_ast.parse("def h():\n    raise NotImplementedError\n")) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)))
+    if classify_function(_fn) is not None:
+        print("FAIL: unconditional raise wrongly classified ->", classify_function(_fn)); ok = False
+
+    # kills: line 86 (arg0 is None -> arg0 is not None): a clean sys.exit(0) would then be flagged exit_nonzero and misclassified as a gate. No exit(0) fixture exists.
+    import ast as _ast
+    _fn = next(n for n in _ast.walk(_ast.parse("import sys\ndef f():\n    sys.exit(0)\n")) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)))
+    if classify_function(_fn) is not None:
+        print("FAIL: clean sys.exit(0) wrongly classified as gate ->", classify_function(_fn)); ok = False
+
+    # kills: line 88 (has_if and 'raise' in sig -> and flipped to or): a function with an if but no raise/assert/exit would gain guarded_raise and misclassify as a gate.
+    import ast as _ast
+    _fn = next(n for n in _ast.walk(_ast.parse("def k(x):\n    if x:\n        return 1\n    return 0\n")) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)))
+    if classify_function(_fn) is not None:
+        print("FAIL: if-only function (no raise) wrongly classified ->", classify_function(_fn)); ok = False
+
+    # kills: line 105 ('assert' in sig and 'exit_nonzero' not in sig -> and flipped to or): a function that BOTH asserts and exits nonzero must be a gate, not a test. The 'or' returns 'test' for it (and for plain functions).
+    import ast as _ast
+    _fn = next(n for n in _ast.walk(_ast.parse("import sys\ndef g(x):\n    assert x\n    if not x:\n        sys.exit(2)\n")) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)))
+    if classify_function(_fn) != "gate":
+        print("FAIL: assert+exit(nonzero) must be gate not test ->", classify_function(_fn)); ok = False
+
+    # kills: line 118 (any(claim word) and len<120 -> and flipped to or): any short string (nearly all of them) would then be collected as a completion claim. Selftest only checks a real claim IS collected, never that non-claims are excluded.
+    import ast as _ast
+    _t = _ast.parse('label = "just a short plain name"\n')
+    if any("just a short plain name" in c for c in _claim_strings(_t)):
+        print("FAIL: short non-claim string collected as claim ->", _claim_strings(_t)); ok = False
+
+    # kills: line 127 (d not in (blocklist) and not d.endswith('.egg-info') -> and flipped to or): blocklisted dirs (.venv, node_modules, site-packages, ...) would no longer be pruned, so vendored code gets scanned. No fixture has such a dir.
+    import tempfile as _tf, shutil as _sh, os as _os
+    _d = _tf.mkdtemp(prefix="cm_prune_")
+    try:
+        _os.makedirs(_os.path.join(_d, ".venv"), exist_ok=True)
+        _os.makedirs(_os.path.join(_d, "app"), exist_ok=True)
+        open(_os.path.join(_d, ".venv", "vend.py"), "w").write("import sys\ndef vendored_gate(x):\n    if not x:\n        sys.exit(1)\n")
+        open(_os.path.join(_d, "app", "real.py"), "w").write("import sys\ndef real_gate(x):\n    if not x:\n        sys.exit(1)\n")
+        _m = build_label_map(_d)
+        if "vendored gate" in _m.labels["gate"]:
+            print("FAIL: pruned dir (.venv) was scanned ->", _m.labels["gate"]); ok = False
+    finally:
+        _sh.rmtree(_d, ignore_errors=True)
+
+    # kills: line 148 (isinstance(t, ast.Name) and t.id.isupper() and len(t.id) > 2 -> an and flipped to or): a lowercase module-level name would then be learned as a definition. Selftest only checks an UPPER_CASE name IS learned, never that lowercase is rejected.
+    import tempfile as _tf, shutil as _sh, os as _os
+    _d = _tf.mkdtemp(prefix="cm_def_")
+    try:
+        _os.makedirs(_os.path.join(_d, "app"), exist_ok=True)
+        open(_os.path.join(_d, "app", "m.py"), "w").write("GOOD_CONST = 9\nlower_case = 5\n")
+        _m = build_label_map(_d)
+        if "good const" not in _m.labels["definition"]:
+            print("FAIL: UPPER_CASE constant not learned ->", _m.labels["definition"]); ok = False
+        if "lower case" in _m.labels["definition"]:
+            print("FAIL: lowercase name wrongly learned as definition ->", _m.labels["definition"]); ok = False
+    finally:
+        _sh.rmtree(_d, ignore_errors=True)
+
     print("selftest", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 

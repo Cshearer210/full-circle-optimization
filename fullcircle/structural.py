@@ -672,6 +672,131 @@ def selftest() -> int:
                 print("FAIL: an @abstractmethod was flagged as a stub"); ok = False
         finally:
             shutil.rmtree(d5, ignore_errors=True)
+        # line 37 (_skip_dir Or): a duplicate copy that lives inside a skip-dir (build/) must NOT be
+        # reported -- build/ is a build artifact copy and is skipped. Or->and stops skipping build/,
+        # walks it, and manufactures a second-door-duplicate. Currently NO selftest creates a skip-dir.
+        d37 = tempfile.mkdtemp(prefix="s37_")
+        try:
+            dup_body = "def orig_thing():\n    return 'unique content for the skip-dir duplicate test aaaa'\n"
+            write(d37, "src/orig.py", dup_body)
+            write(d37, "build/orig.py", dup_body)      # a build/ copy -> must be skipped, so no dup
+            tri37 = scan(d37)
+            if any(t.defect_class == "second-door-duplicate" and "build" in t.location for t in tri37):
+                print("FAIL: a copy inside build/ was flagged as a duplicate -- skip-dir not honored"); ok = False
+        finally:
+            shutil.rmtree(d37, ignore_errors=True)
+
+        # line 136 (_conflicting_definition guard And): a LOWERCASE (non-UPPER) constant assigned
+        # different values across two files must NOT be treated as a conflicting CONSTANT. Either
+        # and->or makes a lowercase name qualify and produces a spurious conflict.
+        d136 = tempfile.mkdtemp(prefix="s136_")
+        try:
+            write(d136, "ca.py", "lowercase_conf = 1\n")
+            write(d136, "cb.py", "lowercase_conf = 2\n")
+            tri136 = scan(d136)
+            if any(t.defect_class == "conflicting-definition"
+                   and t.findings[0].extra.get("id_key") == "conflict:lowercase_conf" for t in tri136):
+                print("FAIL: a lowercase name was treated as a conflicting CONSTANT"); ok = False
+        finally:
+            shutil.rmtree(d136, ignore_errors=True)
+
+        # lines 198 (__all__ Eq) + 220 (exclusion Or): an uncalled function that is excluded because it
+        # is exported via __all__, decorated, or ambiguously defined (defined twice) must NOT be flagged
+        # unwired. 198 !=  stops __all__ populating exports (exp_fn flagged); any single or->and on 220
+        # breaks one exclusion category -- so all three categories are covered here.
+        d220 = tempfile.mkdtemp(prefix="s220_")
+        try:
+            write(d220, "ex.py",
+                  "import functools\n"
+                  "__all__ = ['exp_fn']\n"                  # exp_fn excluded via exports (line 198 fills it)
+                  "@functools.cache\n"
+                  "def decorated_fn():\n    return 1\n"      # excluded via 'decorated'
+                  "def exp_fn():\n    return 2\n"
+                  "def dup_fn():\n    return 3\n"            # defined twice -> excluded via 'ambiguous'
+                  "def dup_fn():\n    return 4\n")
+            tri220 = scan(d220)
+            uw = {t.findings[0].extra["id_key"].rsplit(":", 1)[-1]
+                  for t in tri220 if t.defect_class == "function-unwired"}
+            for nm in ("exp_fn", "decorated_fn", "dup_fn"):
+                if nm in uw:
+                    print("FAIL: excluded function %s was flagged unwired" % nm); ok = False
+        finally:
+            shutil.rmtree(d220, ignore_errors=True)
+
+        # line 201 (__all__ element And): a non-Constant element in __all__ (a bare Name) must be handled
+        # gracefully. and->or short-circuits differently and evaluates e.value on an ast.Name, which
+        # raises AttributeError and crashes the whole scan. Assert the scan survives it.
+        d201 = tempfile.mkdtemp(prefix="s201_")
+        try:
+            write(d201, "ba.py", "def kept():\n    return 1\n__all__ = ['a_str', kept]\n")
+            try:
+                scan(d201)
+            except Exception as e:
+                print("FAIL: a non-Constant __all__ element crashed the scan -> %r" % e); ok = False
+        finally:
+            shutil.rmtree(d201, ignore_errors=True)
+
+        # line 260 (_is_stub ellipsis Is): a MODULE-LEVEL function whose body is `...` and that is called
+        # is a corroborated stub. is->is not stops recognizing the ellipsis body so it is never flagged.
+        # The existing d5 stub test only exercises `raise NotImplementedError`, never `...`.
+        d260 = tempfile.mkdtemp(prefix="s260_")
+        try:
+            write(d260, "dots.py", "def stub_dots():\n    ...\nstub_dots()\n"
+                                   "def real_fn(x):\n    return x + 1\nreal_fn(1)\n")
+            tri260 = scan(d260)
+            stubs = {t.findings[0].extra["id_key"] for t in tri260 if t.defect_class == "stub-implementation"}
+            if "stub:dots.py:stub_dots" not in stubs:
+                print("FAIL: a module-level `...` stub was not detected"); ok = False
+            if "stub:dots.py:real_fn" in stubs:
+                print("FAIL: a real function was flagged as an ellipsis stub"); ok = False
+        finally:
+            shutil.rmtree(d260, ignore_errors=True)
+
+        # line 356 (_dead_code i+1): the finding must point at the UNREACHABLE line (the one AFTER the
+        # terminal), whose lineno comes from body[i+1]. i+1 -> i-1 reports the wrong line. A statement
+        # BEFORE the return makes i-1 != i+1, so the wrong line is observable. _dead_code has no selftest.
+        d356 = tempfile.mkdtemp(prefix="s356_")
+        try:
+            write(d356, "dc.py", "def f():\n    y = 1\n    return y\n    x = 2\n")   # x=2 (line 4) is dead
+            tri356 = scan(d356)
+            dead = [t for t in tri356 if t.defect_class == "dead-code"]
+            if not any(t.location.endswith(":4") for t in dead):
+                print("FAIL: dead-code did not point at the unreachable line 4 -> %s"
+                      % [t.location for t in dead]); ok = False
+        finally:
+            shutil.rmtree(d356, ignore_errors=True)
+
+        # lines 375/382/386/411 (_unused_import): os (plain) and j (aliased) are unused -> flagged;
+        # getcwd (from-import) and gp (aliased from-import) unused -> flagged; sys is used -> NOT flagged;
+        # `annotations` (future import) -> NOT flagged; an unused import inside __init__.py -> NOT flagged.
+        #   375 !=  would skip mod.py and scan __init__ -> os absent, collections present
+        #   382 star=True skips every file -> os absent
+        #   386 asname-or-name and->or -> import keys become wrong/None -> 'os'/'j' absent
+        #   411 or->and -> used 'sys' flagged;  411 !=  -> 'os' excluded / 'annotations' flagged
+        dU = tempfile.mkdtemp(prefix="sU_")
+        try:
+            write(dU, "pkg/mod.py",
+                  "from __future__ import annotations\n"
+                  "import os\n"
+                  "import sys\n"
+                  "import json as j\n"
+                  "from os import getcwd\n"          # from-import, unused (line 392 key path)
+                  "from os import getpid as gp\n"    # aliased from-import, unused (line 392 key path)
+                  "print(sys.path)\n")
+            write(dU, "pkg/__init__.py", "import collections\n")   # __init__ must be skipped (375)
+            triU = scan(dU)
+            ui = {f.ignored_label for t in triU if t.defect_class == "unused-import" for f in t.findings}
+            for want in ("os", "j", "getcwd", "gp"):
+                if want not in ui:
+                    print("FAIL: unused import %r was not flagged (375/382/386/392/411-Eq)" % want); ok = False
+            if "sys" in ui:
+                print("FAIL: used import 'sys' flagged as unused (kills 411-Or)"); ok = False
+            if "annotations" in ui:
+                print("FAIL: future-import 'annotations' flagged as unused (kills 411-Eq)"); ok = False
+            if "collections" in ui:
+                print("FAIL: an unused import inside __init__.py was flagged (kills 375)"); ok = False
+        finally:
+            shutil.rmtree(dU, ignore_errors=True)
         # INVARIANT: every finding these calibrated detectors emit carries its both-directions
         # proof (it fired on known-bad AND stayed quiet on known-good). A finding lacking it would
         # silently downgrade corroboration trust -- so this is a real property, not just coverage.

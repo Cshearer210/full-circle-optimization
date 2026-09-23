@@ -88,6 +88,42 @@ def selftest() -> int:
         if "def used" not in after_src or "def caller" not in after_src:
             print("FAIL: the fix removed live code!"); ok = False
         # and the finding is really gone, nothing new introduced
+        # KILLS line 30 (False->True): unreadable file -> except (OSError, SyntaxError) -> must return False.
+        class _FNoFile:
+            ignored_label = "anything"
+        class _TNoFile:
+            trust = "corroborated"
+            location = "does_not_exist_file_zzz.py:1"
+            findings = [_FNoFile()]
+        _res_nofile = remove_unwired(_TNoFile(), d)
+        if _res_nofile is not False:
+            print("FAIL: remove_unwired must return False when the file cannot be read ->", _res_nofile); ok = False
+
+        # KILLS line 37 (False->True): name not present in the file -> target is None -> must return False.
+        class _FMissing:
+            ignored_label = "does_not_exist_zzz"
+        class _TMissing:
+            trust = "corroborated"
+            location = "m.py:1"
+            findings = [_FMissing()]
+        _res_missing = remove_unwired(_TMissing(), d)
+        if _res_missing is not False:
+            print("FAIL: remove_unwired must return False when the function name is not found ->", _res_missing); ok = False
+
+        # KILLS line 38 (keepends True->False): dropping line-endings mashes the file into one broken line;
+        # substring checks miss it, so assert the rewritten file still parses as valid Python.
+        try:
+            ast.parse(after_src)
+        except SyntaxError as _e:
+            print("FAIL: fixed file is not valid Python (line endings lost during removal) ->", _e); ok = False
+
+        # KILLS line 54 (else False->True): unregistered defect class -> no provider -> must return False.
+        class _TUnknown:
+            defect_class = "no-such-registered-class"
+        _res_dispatch = dispatch(_TUnknown(), d)
+        if _res_dispatch is not False:
+            print("FAIL: dispatch must return False for an unregistered defect class ->", _res_dispatch); ok = False
+
         after = structural.scan(d)
         if any(t.defect_class == "function-unwired" and "zzq_dead" in
                (t.findings[0].ignored_label) for t in after):

@@ -226,6 +226,124 @@ def selftest() -> int:
     finally:
         shutil.rmtree(root2, ignore_errors=True)
 
+    # KILL line 59: dry_run must DEFAULT to True (safe). If the default flips to False, a call
+    # with no dry_run kwarg would write to the REAL target instead of only reporting a plan.
+    r59 = _tf.mkdtemp(prefix="sfo_dflt59_")
+    try:
+        p59 = os.path.join(r59, "bad.py")
+        open(p59, "w").write("# DEADCANARY x\n")
+        def _good59(t, work):
+            fp = os.path.join(work, t.location)
+            open(fp, "w").write(open(fp).read().replace("DEADCANARY", "ok"))
+            return True
+        rep59 = apply_fixes(r59, finder(r59), _good59, finder)   # NO dry_run kwarg -> must default safe
+        if rep59["dry_run"] is not True:
+            print("FAIL: apply_fixes must default to dry_run=True ->", rep59["dry_run"]); ok = False
+        if "DEADCANARY" not in open(p59).read():
+            print("FAIL: default (no-kwarg) call modified the real target -- dry_run default is not True"); ok = False
+    finally:
+        shutil.rmtree(r59, ignore_errors=True)
+
+    # KILL line 60: require_corroborated must DEFAULT to True. An uncorroborated single-method
+    # finding must NOT be auto-attempted under the default (that is the whole safety story).
+    r60 = _tf.mkdtemp(prefix="sfo_dflt60_")
+    try:
+        try:
+            from .finding import Finding as _F60, triangulate as _tri60
+        except ImportError:
+            from finding import Finding as _F60, triangulate as _tri60
+        open(os.path.join(r60, "bad.py"), "w").write("# DEADCANARY y\n")
+        single = _tri60([_F60("test", "test-cannot-fail", "bad.py", signal="marker",
+                              method="only1", confidence=0.9, both_directions_proven=True,
+                              extra={"id_key": "dc:bad.py"})])
+        if single[0].trust != "single-method":
+            print("FAIL: setup60 -- finding should be single-method ->", single[0].trust); ok = False
+        def _good60(t, work):
+            fp = os.path.join(work, t.location)
+            open(fp, "w").write(open(fp).read().replace("DEADCANARY", "ok"))
+            return True
+        rep60 = apply_fixes(r60, single, _good60, finder, dry_run=True)   # NO require_corroborated kwarg
+        if rep60["attempted"] != 0:
+            print("FAIL: single-method finding was attempted under the default -- require_corroborated default is not True ->", rep60["attempted"]); ok = False
+    finally:
+        shutil.rmtree(r60, ignore_errors=True)
+
+    # KILL lines 65 / 113 / 114: exercise the single-writer merge conflict path, which the
+    # existing selftest never reaches (it only ever has ONE finding). Two corroborated findings
+    # whose fixes write DIFFERENT content to the SAME shared file must conflict; only the
+    # higher-confidence one may win, the other is held back.
+    #   line 65  reverse=True: higher-confidence finding is queued/staged first and OWNS the file
+    #   line 113 planned[rel]!=b: DIFFERENT content on a planned file is a conflict
+    #   line 114 conflict=True: a detected conflict actually SKIPS applying (not just records it)
+    rC = _tf.mkdtemp(prefix="sfo_conf_")
+    try:
+        try:
+            from .finding import Finding as _FC, triangulate as _triC
+        except ImportError:
+            from finding import Finding as _FC, triangulate as _triC
+        open(os.path.join(rC, "a.py"), "w").write("# DEADCANARY a\n")
+        open(os.path.join(rC, "b.py"), "w").write("# DEADCANARY b\n")
+        def _mk(loc, conf):
+            return _triC([_FC("test", "test-cannot-fail", loc, signal="marker", method="m1",
+                              confidence=conf, both_directions_proven=True, extra={"id_key": "dc:" + loc}),
+                          _FC("test", "test-cannot-fail", loc, signal="marker", method="m2",
+                              confidence=conf, both_directions_proven=True, extra={"id_key": "dc:" + loc})])[0]
+        hi = _mk("a.py", 0.95)   # higher confidence -> must WIN the shared file
+        lo = _mk("b.py", 0.70)   # lower  confidence -> must be HELD BACK as a conflict
+        def _prov(t, work):
+            fp = os.path.join(work, t.location)
+            open(fp, "w").write("clean\n")                    # remove marker from own file
+            tag = "A" if t.location == "a.py" else "B"
+            open(os.path.join(work, "shared.txt"), "w").write("shared-" + tag + "\n")  # DIFFERENT content
+            return True
+        repC = apply_fixes(rC, [lo, hi], _prov, finder, dry_run=False)
+        if len(repC["applied"]) != 1:
+            print("FAIL: conflicting same-file fixes -- exactly one must apply ->", repC["applied"], repC["conflicts"]); ok = False
+        if hi.identity not in repC["applied"]:
+            print("FAIL: higher-confidence fix must win the shared file (highest-trust-first order) ->", repC["applied"]); ok = False
+        if not any(i == lo.identity for i, _ in repC["conflicts"]):
+            print("FAIL: lower-confidence conflicting fix must be held back as a conflict ->", repC["conflicts"]); ok = False
+    finally:
+        shutil.rmtree(rC, ignore_errors=True)
+
+    # KILL line 123: a verified fix that CREATES a file in a not-yet-existing subdirectory must
+    # have its parent dir made on merge. Flipping `dirname(p) or root` to `dirname(p) and root`
+    # yields makedirs(root) for a nested path, and the write then raises FileNotFoundError.
+    rS = _tf.mkdtemp(prefix="sfo_sub_")
+    try:
+        open(os.path.join(rS, "bad.py"), "w").write("# DEADCANARY s\n")
+        def _provsub(t, work):
+            fp = os.path.join(work, t.location)
+            open(fp, "w").write(open(fp).read().replace("DEADCANARY", "ok"))
+            d = os.path.join(work, "newdir")
+            os.makedirs(d, exist_ok=True)
+            open(os.path.join(d, "created.py"), "w").write("# added by fix\n")
+            return True
+        try:
+            apply_fixes(rS, finder(rS), _provsub, finder, dry_run=False)
+            if not os.path.exists(os.path.join(rS, "newdir", "created.py")):
+                print("FAIL: a fix creating a nested file must makedirs its parent on merge"); ok = False
+        except Exception as e:
+            print("FAIL: merge failed to create parent dir for a nested fix ->", repr(e)); ok = False
+    finally:
+        shutil.rmtree(rS, ignore_errors=True)
+
+    # KILL line 140: the DRY-RUN message must report the count of VERIFIED fixes. Flipping
+    # `r[1] == "verified"` to `!=` counts non-verified results instead (0 here), so the message
+    # would read "0 verified fix(es)" for a run that verified 1.
+    rM = _tf.mkdtemp(prefix="sfo_msg_")
+    try:
+        open(os.path.join(rM, "bad.py"), "w").write("# DEADCANARY m\n")
+        def _goodM(t, work):
+            fp = os.path.join(work, t.location)
+            open(fp, "w").write(open(fp).read().replace("DEADCANARY", "ok"))
+            return True
+        repM = apply_fixes(rM, finder(rM), _goodM, finder, dry_run=True)
+        if "1 verified fix" not in repM["message"]:
+            print("FAIL: dry-run message must report 1 verified fix ->", repM["message"]); ok = False
+    finally:
+        shutil.rmtree(rM, ignore_errors=True)
+
     print("selftest", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 

@@ -136,6 +136,33 @@ def selftest() -> int:
     if rep["sarif"]["version"] != "2.1.0" or "runs" not in rep["sarif"]:
         print("FAIL: bad SARIF"); ok = False
 
+    # 7. the per-round `corroborated` count reflects TRUST (only >=2-method findings), not a miscount.
+    #    Round 1 has exactly one corroborated finding (the shared S); the unwired lead and the
+    #    conflict are single-method. (kills L67  t.trust != "single-method" -> ==)
+    if rep["rounds"][0]["corroborated"] != 1:
+        print("FAIL: round 1 should report exactly 1 corroborated finding ->",
+              rep["rounds"][0]["corroborated"]); ok = False
+
+    # 8. the 2-round cap's early-convergence break must actually FIRE: given room for 3 rounds and
+    #    finders that converge, it stops at 2 (round 2 adds nothing new). The old test ran at
+    #    max_rounds=2 where the loop ends naturally, so this break was never exercised.
+    #    (kills L70  r > 1 -> r <= 1)
+    rep3 = run("/fake", [f1, f2], max_rounds=3)
+    if len(rep3["rounds"]) != 2:
+        print("FAIL: a converged run should stop at 2 rounds, not run to max ->",
+              len(rep3["rounds"])); ok = False
+
+    # 9. _wire_real_finders() is idempotent: calling it twice must NOT duplicate the claimproof path
+    #    on sys.path. (kills L154  os.path.isdir(cp) and cp not in sys.path -> OR)
+    import sys as _sys
+    _cp = os.path.expanduser("~/PureEuphoria/claimproof/src")
+    if os.path.isdir(_cp):
+        _sys.path[:] = [p for p in _sys.path if p != _cp]     # start from a known-clean state
+        _wire_real_finders(); _wire_real_finders()
+        if _sys.path.count(_cp) != 1:
+            print("FAIL: _wire_real_finders duplicated the claimproof path on sys.path ->",
+                  _sys.path.count(_cp)); ok = False
+
     print("selftest", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
