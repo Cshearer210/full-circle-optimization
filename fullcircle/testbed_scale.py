@@ -246,6 +246,8 @@ GLOSS = {
     "resource-leak": "open() whose file handle is never closed",
     "shadowed-builtin": "a module name that shadows a builtin like list/dict",
     "predicate-returns-none": "a predicate that can fall through to None instead of a bool",
+    "unreachable-except": "an except clause that can never run (a broader one above it catches first)",
+    "assert-constant-in-production": "an assert that is always true (or -O strips it), so it guards nothing",
 }
 
 
