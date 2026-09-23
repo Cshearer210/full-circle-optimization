@@ -20,6 +20,7 @@ MODULES = [
     ("fullcircle.patches", "selftest"),
     ("fullcircle.orchestrator", "selftest"),
     ("fullcircle.testbed", "selftest"),
+    ("fullcircle.testbed_scale", "selftest"),
     ("claimproof.multimethod", "selftest"),
     ("claimproof.rag_index", "selftest"),
 ]
