@@ -171,6 +171,17 @@ def run(n_configs=300, seed=1):
             "false_positives": fp, "fp_examples": fp_examples}
 
 
+GLOSS = {
+    "test-cannot-fail": "a test that runs code but checks nothing (green forever)",
+    "swallowed-exception": "a broad except that returns success and hides the error",
+    "labeled-gate-that-cannot-fail": "named like a gate but its verdict ignores the input",
+    "second-door-duplicate": "the same code at two paths; a fix to one misses the other",
+    "conflicting-definition": "one constant, different values in two files",
+    "function-unwired": "a function defined and complete that nothing calls",
+    "stub-implementation": "a pass/NotImplementedError stub that other code already calls",
+}
+
+
 def _report(r) -> bool:
     print("=" * 68)
     print("SCALE TEST -- %d randomised systems, %d planted defects"
@@ -185,6 +196,7 @@ def _report(r) -> bool:
         if c != p:
             allok = False
         print("  %-30s %4d/%-4d  %5.1f%%%s" % (cls, c, p, pct, flag))
+        print("        = %s" % GLOSS.get(cls, "?"))
     print("  false positives on controls: %d" % r["false_positives"])
     for e in r["fp_examples"]:
         print("      FP:", e)
