@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+# CALLED BY: the FULL-CIRCLE-OPTIMIZATION CLI (python -m fullcircle.orchestrator <target>).
+# FIRES WHEN: running the whole portfolio as one team over a target system.
+"""FULL-CIRCLE-OPTIMIZATION -- the thin linker (Chris, 2026-09-23).
+
+It owns NO detection or fix logic. It:
+  1. collects RAW findings from every finder (claimproof silent + FULL-RESET-GRAPH structural),
+  2. TRIANGULATES them together so a defect two DIFFERENT REPOS find corroborates (the reliability
+     story: overlapping methods across tools, not just within one),
+  3. runs at most 2 ROUNDS (refinement 3: cap at 2, then do output work for a day or two and re-run
+     when there is new data),
+  4. routes judgment items -- conflicts, laws/rules, single-method leads -- to a HUMAN-REVIEW QUEUE
+     rather than auto-fixing them (refinement 4: a human eye at each stage),
+  5. emits one aggregate SARIF + a run report.
+
+A finder is any callable(root) -> list[Finding]. In production the two real finders are wired in
+main(); the loop/cap/queue logic is proven here with synthetic finders so it is testable in
+isolation. Fixing between rounds is SANDBOX-FAN-OUT's job; the orchestrator calls a fixer hook if
+one is supplied, else it simply re-finds (and converges when nothing new appears).
+"""
+from __future__ import annotations
+
+import os
+
+try:
+    from .finding import Finding, triangulate, to_sarif, Triangulated
+except ImportError:
+    from finding import Finding, triangulate, to_sarif, Triangulated  # type: ignore
+
+# defect classes that a human must rule on, never a bot (Chris: laws/rules/conflicts need a human eye)
+JUDGMENT_CLASSES = {"conflicting-definition", "conflicting-instruction", "law-or-rule-change"}
+
+
+def _partition(tri: list[Triangulated]):
+    """Split findings into auto-fixable (corroborated, mechanical) and human-review (judgment or a
+    single-method lead that is not yet trustworthy enough to fix on an unfamiliar system)."""
+    auto, review = [], []
+    for t in tri:
+        if t.defect_class in JUDGMENT_CLASSES or t.trust == "single-method":
+            review.append(t)
+        else:
+            auto.append(t)
+    return auto, review
+
+
+def run(root, finders, fixer=None, max_rounds=2) -> dict:
+    """Run the pipeline. `finders`: list of callable(root)->list[Finding]. `fixer`: optional
+    callable(list[Triangulated], root)->int applied between rounds (SANDBOX-FAN-OUT in production)."""
+    rounds = []
+    seen: set[str] = set()
+    last_tri: list[Triangulated] = []
+    for r in range(1, max_rounds + 1):
+        raw: list[Finding] = []
+        for f in finders:
+            raw.extend(f(root))
+        tri = triangulate(raw)                       # cross-repo triangulation happens HERE
+        last_tri = tri
+        ids = {t.identity for t in tri}
+        new = ids - seen
+        seen |= ids
+        auto, review = _partition(tri)
+        fixed = 0
+        if fixer and auto:
+            fixed = fixer(auto, root)                # SANDBOX-FAN-OUT applies verified fixes
+        rounds.append({
+            "round": r, "total": len(tri), "new": len(new),
+            "corroborated": sum(1 for t in tri if t.trust != "single-method"),
+            "auto_fixable": len(auto), "needs_human": len(review), "fixed": fixed,
+        })
+        if r > 1 and not new and not fixed:
+            break                                    # converged: nothing new and nothing fixed
+    auto, review = _partition(last_tri)
+    return {
+        "target": root,
+        "rounds": rounds,
+        "findings": last_tri,
+        "human_review_queue": review,
+        "auto_fixable": auto,
+        "sarif": to_sarif(last_tri, "full-circle-optimization"),
+        "message": ("Ran %d round(s), capped at %d. Do output/other work for a day or two so the "
+                    "tools have new data, then re-run. %d item(s) need your eye."
+                    % (len(rounds), max_rounds, len(review))),
+    }
+
+
+# ---------------------------------------------------------------- proof
+def selftest() -> int:
+    ok = True
+
+    # synthetic finders: finder1 and finder2 each find a shared defect S by a DIFFERENT method
+    # (cross-repo corroboration), plus one unique single-method lead each.
+    def f1(root):
+        return [Finding("gate", "no-clean-without-looking", "g.py:1", signal="s", method="ast",
+                        both_directions_proven=True, extra={"id_key": "S"}),
+                Finding("wire", "function-unwired", "u.py:2", signal="s", method="no-call-edge")]
+
+    def f2(root):
+        return [Finding("gate", "no-clean-without-looking", "g.py:1", signal="s", method="mutation",
+                        both_directions_proven=True, extra={"id_key": "S"}),
+                Finding("definition", "conflicting-definition", "c.py:3", signal="s",
+                        method="constant-conflict", both_directions_proven=True,
+                        extra={"id_key": "conflict:X"})]
+
+    rep = run("/fake", [f1, f2])
+
+    # 1. the shared defect is corroborated ACROSS the two finders
+    shared = [t for t in rep["findings"] if t.defect_class == "no-clean-without-looking"]
+    if not shared or shared[0].corroboration != 2:
+        print("FAIL: cross-repo corroboration missing ->", shared); ok = False
+
+    # 2. two rounds ran, and round 2 added nothing new (converged; no fixer)
+    if len(rep["rounds"]) != 2 or rep["rounds"][1]["new"] != 0:
+        print("FAIL: expected 2 rounds, 0 new in round 2 ->", rep["rounds"]); ok = False
+
+    # 3. the conflicting-definition (judgment) and the single-method lead go to human review
+    rq_classes = {t.defect_class for t in rep["human_review_queue"]}
+    if "conflicting-definition" not in rq_classes:
+        print("FAIL: conflict not routed to human review ->", rq_classes); ok = False
+    if not any(t.defect_class == "function-unwired" for t in rep["human_review_queue"]):
+        print("FAIL: single-method lead not routed to human review"); ok = False
+
+    # 4. the corroborated gate is auto-fixable, NOT in the human queue
+    if any(t.defect_class == "no-clean-without-looking" for t in rep["human_review_queue"]):
+        print("FAIL: a corroborated mechanical finding was sent to human review"); ok = False
+    if not any(t.defect_class == "no-clean-without-looking" for t in rep["auto_fixable"]):
+        print("FAIL: corroborated finding not marked auto-fixable"); ok = False
+
+    # 5. a fixer that clears everything makes round 2 converge with fixed>0 then stop
+    def fixer(auto, root):
+        return len(auto)
+    rep2 = run("/fake", [f1, f2], fixer=fixer)
+    if rep2["rounds"][0]["fixed"] < 1:
+        print("FAIL: fixer not invoked ->", rep2["rounds"]); ok = False
+
+    # 6. SARIF is well-formed
+    if rep["sarif"]["version"] != "2.1.0" or "runs" not in rep["sarif"]:
+        print("FAIL: bad SARIF"); ok = False
+
+    print("selftest", "PASS" if ok else "FAIL")
+    return 0 if ok else 1
+
+
+def _wire_real_finders():
+    """Best-effort wiring of the two real finders; returns the list of those importable."""
+    finders = []
+    try:
+        from . import structural
+    except ImportError:
+        import structural                      # when run as a script, not a package
+    finders.append(structural.raw_findings)
+    # claimproof lives in its own repo; add it to the path if present
+    import sys
+    cp = os.path.expanduser("~/PureEuphoria/claimproof/src")
+    if os.path.isdir(cp) and cp not in sys.path:
+        sys.path.insert(0, cp)
+    try:
+        from claimproof import multimethod
+        finders.append(multimethod.raw_findings)
+    except Exception:
+        pass
+    return finders
+
+
+if __name__ == "__main__":
+    import sys, json as _json
+    if "--selftest" in sys.argv or len(sys.argv) == 1:
+        sys.exit(selftest())
+    target = [a for a in sys.argv[1:] if not a.startswith("-")][0]
+    finders = _wire_real_finders()
+    rep = run(target, finders)
+    for rd in rep["rounds"]:
+        print("round %(round)d: %(total)d findings (%(new)d new, %(corroborated)d corroborated, "
+              "%(auto_fixable)d auto-fixable, %(needs_human)d need you)" % rd)
+    print(rep["message"])
+    if "--sarif" in sys.argv:
+        out = sys.argv[sys.argv.index("--sarif") + 1]
+        open(out, "w").write(_json.dumps(rep["sarif"], indent=2))
+        print("SARIF written:", out)
+    sys.exit(0)
