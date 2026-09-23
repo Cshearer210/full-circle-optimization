@@ -158,6 +158,11 @@ def _wire_real_finders():
         finders.append(multimethod.raw_findings)
     except Exception:
         pass
+    try:
+        from claimproof import rag_index
+        finders.append(rag_index.raw_findings)
+    except Exception:
+        pass
     return finders
 
 

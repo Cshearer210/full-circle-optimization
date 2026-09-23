@@ -16,15 +16,21 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CANON = os.path.join(HERE, "finding.py")
 
-# Where each repo keeps its copy, relative to $HOME. Absent copies are skipped (a repo not yet
-# populated is not a drift); a PRESENT copy that differs is the failure.
-COPIES = [
-    "PureEuphoria/claimproof/src/claimproof/finding.py",
-    "rag-ghost-work/ragghost/finding.py",          # FULL-RESET-GRAPH (after it is populated)
-    "corral-work/corral/finding.py",               # SANDBOX-FAN-OUT (after it is populated)
-]
+# Each shared file: canonical copy (in fullcircle) -> the repo copies, relative to $HOME. Absent
+# copies are skipped (a repo not yet populated is not a drift); a PRESENT copy that differs fails.
+SHARED = {
+    "finding.py": [
+        "PureEuphoria/claimproof/src/claimproof/finding.py",
+        "rag-ghost-work/ragghost/finding.py",       # FULL-RESET-GRAPH (after it is populated)
+        "corral-work/corral/finding.py",            # SANDBOX-FAN-OUT (after it is populated)
+    ],
+    "concepts.py": [
+        "PureEuphoria/claimproof/src/claimproof/concepts.py",
+        "rag-ghost-work/ragghost/concepts.py",
+    ],
+}
+CANON = os.path.join(HERE, "finding.py")            # kept for back-compat with older callers
 
 
 def _sha(path: str) -> str:
@@ -33,22 +39,23 @@ def _sha(path: str) -> str:
 
 def check(home: str | None = None) -> tuple[int, list[str]]:
     home = home or os.path.expanduser("~")
-    if not os.path.exists(CANON):
-        return 2, ["canonical finding.py missing: %s" % CANON]
-    canon = _sha(CANON)
-    msgs, drift = [], False
-    present = 0
-    for rel in COPIES:
-        p = os.path.join(home, rel)
-        if not os.path.exists(p):
-            continue
-        present += 1
-        if _sha(p) != canon:
-            drift = True
-            msgs.append("DRIFT: %s differs from canonical finding.py" % rel)
-        else:
-            msgs.append("ok: %s identical" % rel)
-    msgs.insert(0, "canonical %s; %d copy(ies) present" % (CANON, present))
+    msgs, drift, present = [], False, 0
+    for fname, copies in SHARED.items():
+        canon_path = os.path.join(HERE, fname)
+        if not os.path.exists(canon_path):
+            return 2, ["canonical %s missing: %s" % (fname, canon_path)]
+        canon = _sha(canon_path)
+        for rel in copies:
+            p = os.path.join(home, rel)
+            if not os.path.exists(p):
+                continue
+            present += 1
+            if _sha(p) != canon:
+                drift = True
+                msgs.append("DRIFT: %s differs from canonical %s" % (rel, fname))
+            else:
+                msgs.append("ok: %s identical" % rel)
+    msgs.insert(0, "%d shared file(s); %d copy(ies) present" % (len(SHARED), present))
     return (1 if drift else 0), msgs
 
 
@@ -57,11 +64,12 @@ def selftest() -> int:
     ok = True
     d = tempfile.mkdtemp(prefix="drift_")
     try:
-        # a home with one identical copy and one drifted copy
-        good = os.path.join(d, COPIES[0])
-        bad = os.path.join(d, COPIES[1])
+        # a home with one identical copy and one drifted copy of finding.py
+        copies = SHARED["finding.py"]
+        good = os.path.join(d, copies[0])
+        bad = os.path.join(d, copies[1])
         os.makedirs(os.path.dirname(good)); os.makedirs(os.path.dirname(bad))
-        shutil.copyfile(CANON, good)
+        shutil.copyfile(os.path.join(HERE, "finding.py"), good)
         open(bad, "w").write("# drifted\n")
         code, msgs = check(home=d)
         if code != 1:

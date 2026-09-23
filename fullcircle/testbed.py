@@ -29,7 +29,7 @@ try:
 except ImportError:
     import structural
     from finding import triangulate
-from claimproof import multimethod
+from claimproof import multimethod, rag_index
 
 
 def _w(root, rel, body):
@@ -69,6 +69,15 @@ def gen_system(root, level="basic", rng=None):
     _w(root, "pkg/orphan.py", "def zzq_orphan_fn():\n    return 42\n")
     ground.append(("function-unwired", "zzq_orphan_fn"))
 
+    # PLANT 5: a function labeled like a gate that cannot fail (returns True, ignores input)
+    _w(root, "pkg/access.py", "def check_access(user):\n    return True\ncheck_access(1)\n")
+    ground.append(("labeled-gate-that-cannot-fail", "check_access"))
+
+    # CONTROL: a REAL gate that raises on bad input -- must NOT be flagged
+    _w(root, "pkg/realgate.py",
+       "def validate_token(t):\n    if not t:\n        raise ValueError('no')\n    return t\n"
+       "validate_token('ok')\n")
+
     # CONTROL: a fully-wired helper module (all functions called) -- must NOT be flagged unwired
     _w(root, "pkg/util.py", "def helper():\n    return 1\ndef _run():\n    return helper()\n_run()\n")
 
@@ -82,11 +91,13 @@ def gen_system(root, level="basic", rng=None):
 
 
 def get_findings(root):
-    raw = structural.raw_findings(root) + multimethod.raw_findings(root)
+    raw = (structural.raw_findings(root) + multimethod.raw_findings(root)
+           + rag_index.raw_findings(root))
     return triangulate(raw)
 
 
-_CONTROL_MARKERS = ("test_good", "helper", "_run", "compute", "UNIQUE_", "f_", "c_", "mod_")
+_CONTROL_MARKERS = ("test_good", "helper", "_run", "compute", "UNIQUE_", "f_", "c_", "mod_",
+                    "validate_token")
 
 
 def score(root, ground):
