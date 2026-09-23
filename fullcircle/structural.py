@@ -27,12 +27,19 @@ try:
 except ImportError:
     from finding import Finding, triangulate, Triangulated, to_sarif  # type: ignore
 
-_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache"}
+# build artifacts (build/, dist/, *.egg-info) are COPIES of src -- scanning them double-counts and
+# manufactures second-door duplicates. Skip them everywhere (measured on real repos 2026-09-23).
+_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache",
+              "build", "dist", ".tox", ".eggs", ".pytest_cache", "site-packages"}
+
+
+def _skip_dir(d: str) -> bool:
+    return d in _SKIP_DIRS or d.endswith(".egg-info")
 
 
 def _walk(root, exts=None):
     for dirpath, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
+        dirs[:] = [d for d in dirs if not _skip_dir(d)]
         for fn in files:
             if exts and not fn.endswith(exts):
                 continue
@@ -207,6 +214,10 @@ def _unwired_function(root: str) -> list[Finding]:
         if (name in ambiguous or name in decorated or name in exports or
                 name.startswith("__") or name.startswith("test") or name in ("main", "run")):
             continue
+        # conftest.py functions are pytest fixtures/hooks invoked by the framework by name, not
+        # called in source -- they are framework-wired, not unwired (measured FP 2026-09-23).
+        if os.path.basename(rel) == "conftest.py":
+            continue
         no_call = name not in called
         if not no_call:
             continue                                             # it is called -> wired
@@ -262,7 +273,7 @@ def _stub_implementation(root: str) -> list[Finding]:
       has-callers    something already calls it
     A stub that is CALLED is 'looks done, isn't' -- corroborated (Chris's half-finished-work class).
     A stub nobody calls yet is a single-method lead. @abstractmethod stubs are skipped by design."""
-    called, defs = set(), []
+    called, defs, methods = set(), [], set()
     for path in _walk(root, (".py",)):
         rel = os.path.relpath(path, root)
         try:
@@ -270,6 +281,10 @@ def _stub_implementation(root: str) -> list[Finding]:
         except (SyntaxError, ValueError, OSError):
             continue
         for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                for m in node.body:                       # remember which defs are METHODS
+                    if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        methods.add(id(m))
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 defs.append((rel, node))
             elif isinstance(node, ast.Call):
@@ -287,6 +302,12 @@ def _stub_implementation(root: str) -> list[Finding]:
             continue                                     # an abstract method is meant to be empty
         kind = _is_stub(node)
         if not kind:
+            continue
+        # `...` and `raise NotImplementedError` inside a CLASS are interface/abstract idioms (a
+        # Protocol or abstract-base contract for subclasses to fill), not half-finished functions --
+        # do not flag them (measured FP on real repos 2026-09-23: a typing.Protocol with `...`
+        # bodies). A `pass` method, or a module-level stub, still counts.
+        if kind in ("not-implemented", "ellipsis") and id(node) in methods:
             continue
         idk = "stub:%s:%s" % (rel, node.name)
         loc = "%s:%d" % (rel, node.lineno)
