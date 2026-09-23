@@ -161,3 +161,23 @@ Chris's own repos are backups (allowed). GitHub renames + any release wait for C
       or Chris's live system (the other session must free it first).
     - GitHub-side renames (rag-ghost->FULL-RESET-GRAPH, corral->SANDBOX-FAN-OUT) + any push/release —
       need Chris's token; public acts. Python package renames deferred (invasive; break existing tests).
+
+- 2026-09-23 (DEEP TESTING pass, per Chris "do it a ton more in depth"):
+  * SCALE (T1 hundreds-of-configs): testbed_scale.py -> 300 randomised systems, 1243 planted defects,
+    100% catch per class, 0 false positives, 300/300 clean. Caught a real fixture bug (lowercase
+    constant the detector correctly ignores). Added to suite as a 40-config selftest.
+  * PER-STAGE + COMBINED: every detector has its own both-directions selftest (per-stage); orchestrator/
+    testbed/scale are the combined proofs.
+  * LIVE on the REAL system (T6, the one Chris said matters most): ran finders on ~/.claude/scripts
+    (213 py), ~/Tools/hooks (78), ~/Tools. Found a CONFIRMED conflict (STALE_HOURS defined 8 files, 5
+    values) + 160 swallowed-exception sites in the enforcement layer (triage: hook fail-open vs
+    verdict-swallow). Writeup: memory/problems/REAL-SYSTEM-FINDINGS-2026-09-23.md. Handed to d9.
+  * OLD VERSIONS (T4): ran on the system as of 1wk (199 py) and 1mo (128 py) ago via git archive.
+    Runs cleanly on historical shapes AND bisected a real regression (STALE_HOURS conflict absent 1mo
+    ago, present 1wk ago) -> can date when a defect entered.
+  * AGENT-TIER (T5): two parallel subagents driving orchestrator + suite on different real dirs (in
+    flight at time of writing).
+  * COORDINATION: d9 confirmed it has not touched the portfolio repos in 36h (no collision); it is on
+    system-optimization (gate repairs), so the live findings above feed directly into its work.
+  STILL OWED: online third-party repos (T3, needs external), full Fable-vs-no-Fable fix runs (models),
+  GitHub renames/push (Chris's token), and the architecture decision (parked for Chris).
