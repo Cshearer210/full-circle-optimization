@@ -87,6 +87,11 @@ def gen_system(root, level="basic", rng=None):
     _w(root, "pkg/goodio.py",
        "def save_cfg():\n    try:\n        risky()\n    except Exception:\n        raise\nsave_cfg()\n")
 
+    # PLANT 7: a stub that other code already calls (looks done, isn't)
+    _w(root, "pkg/pay.py",
+       "def process_payment(order):\n    raise NotImplementedError\nprocess_payment(1)\n")
+    ground.append(("stub-implementation", "process_payment"))
+
     # CONTROL: a fully-wired helper module (all functions called) -- must NOT be flagged unwired
     _w(root, "pkg/util.py", "def helper():\n    return 1\ndef _run():\n    return helper()\n_run()\n")
 

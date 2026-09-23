@@ -230,10 +230,87 @@ def _unwired_function(root: str) -> list[Finding]:
     return out
 
 
+def _is_stub(fn):
+    body = fn.body
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+            and isinstance(body[0].value.value, str):
+        body = body[1:]                                  # drop a docstring
+    if len(body) != 1:
+        return None
+    s = body[0]
+    if isinstance(s, ast.Pass):
+        return "pass"
+    if isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant) and s.value.value is Ellipsis:
+        return "ellipsis"
+    if isinstance(s, ast.Raise):
+        e = s.exc
+        nm = ""
+        if isinstance(e, ast.Call):
+            nm = getattr(e.func, "id", getattr(e.func, "attr", ""))
+        elif isinstance(e, ast.Name):
+            nm = e.id
+        elif isinstance(e, ast.Attribute):
+            nm = e.attr
+        if nm == "NotImplementedError":
+            return "not-implemented"
+    return None
+
+
+def _stub_implementation(root: str) -> list[Finding]:
+    """A function whose body is a stub (pass / ... / raise NotImplementedError). Corroboration:
+      body-is-stub   the body does nothing real
+      has-callers    something already calls it
+    A stub that is CALLED is 'looks done, isn't' -- corroborated (Chris's half-finished-work class).
+    A stub nobody calls yet is a single-method lead. @abstractmethod stubs are skipped by design."""
+    called, defs = set(), []
+    for path in _walk(root, (".py",)):
+        rel = os.path.relpath(path, root)
+        try:
+            tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
+        except (SyntaxError, ValueError, OSError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                defs.append((rel, node))
+            elif isinstance(node, ast.Call):
+                f = node.func
+                if isinstance(f, ast.Name):
+                    called.add(f.id)
+                elif isinstance(f, ast.Attribute):
+                    called.add(f.attr)
+    out = []
+    for rel, node in defs:
+        if node.name.startswith("__"):
+            continue
+        if any("abstract" in (getattr(d, "id", getattr(d, "attr", "")) or "").lower()
+               for d in node.decorator_list):
+            continue                                     # an abstract method is meant to be empty
+        kind = _is_stub(node)
+        if not kind:
+            continue
+        idk = "stub:%s:%s" % (rel, node.name)
+        loc = "%s:%d" % (rel, node.lineno)
+        out.append(Finding(
+            concept="wire", defect_class="stub-implementation", location=loc,
+            signal="function body is a stub (%s)" % kind,
+            evidence="%s is not actually implemented" % node.name,
+            method="body-is-stub", repo="full-reset-graph", severity="med", confidence=0.6,
+            both_directions_proven=True, ignored_label=node.name, extra={"id_key": idk}))
+        if node.name in called:
+            out.append(Finding(
+                concept="wire", defect_class="stub-implementation", location=loc,
+                signal="the stub is already called by other code",
+                evidence="callers depend on %s but it is not implemented" % node.name,
+                method="has-callers", repo="full-reset-graph", severity="high", confidence=0.75,
+                both_directions_proven=True, ignored_label=node.name, extra={"id_key": idk}))
+    return out
+
+
 DETECTORS = {
     "second-door-duplicate": [_second_door],
     "conflicting-definition": [_conflicting_definition],
     "function-unwired": [_unwired_function],
+    "stub-implementation": [_stub_implementation],
 }
 
 
@@ -345,6 +422,28 @@ def selftest() -> int:
                 print("FAIL: a called function was flagged as unwired"); ok = False
         finally:
             shutil.rmtree(d4, ignore_errors=True)
+
+        # stub-implementation: a called stub -> corroborated; a real fn -> not flagged;
+        # an @abstractmethod stub -> not flagged
+        d5 = tempfile.mkdtemp(prefix="struct5_")
+        try:
+            write(d5, "svc.py",
+                  "import abc\n"
+                  "def process_payment(order):\n    raise NotImplementedError\n"   # stub, and called
+                  "def real(x):\n    return x + 1\n"                                # real, called
+                  "class Base(abc.ABC):\n    @abc.abstractmethod\n    def do(self):\n        pass\n"  # abstract -> ok
+                  "process_payment(1)\nreal(2)\n")
+            tri5 = scan(d5)
+            stubs = {t.findings[0].extra["id_key"]: t for t in tri5 if t.defect_class == "stub-implementation"}
+            pp = stubs.get("stub:svc.py:process_payment")
+            if not pp or pp.corroboration != 2:
+                print("FAIL: called stub should be corroborated ->", list(stubs)); ok = False
+            if "stub:svc.py:real" in stubs:
+                print("FAIL: a real function was flagged as a stub"); ok = False
+            if "stub:svc.py:do" in stubs:
+                print("FAIL: an @abstractmethod was flagged as a stub"); ok = False
+        finally:
+            shutil.rmtree(d5, ignore_errors=True)
     finally:
         shutil.rmtree(d, ignore_errors=True)
 

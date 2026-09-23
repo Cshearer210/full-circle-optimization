@@ -134,3 +134,30 @@ Chris's own repos are backups (allowed). GitHub renames + any release wait for C
   OWED next: renames (local+package), FULL-RESET-GRAPH structural detectors (unwired/conflicts/
   second-door), more silent classes + mutation method, repo-3 eight checks, repo-4 adapter+loop,
   the full test bed (3 levels, renamed fixture at system scale, old versions, agent-tier, LIVE).
+
+- 2026-09-23 (continued autonomous run) — the pipeline is now COMPLETE and proven end-to-end:
+  * FULL-RESET-GRAPH structural.py: 3 detectors (second-door-duplicate, conflicting-definition,
+    function-unwired), each 2 corroborating methods, distributed into rag-ghost-work/ragghost/. DONE.
+  * claimproof: multimethod.py (test-cannot-fail + swallowed-exception, each 2 methods) + rag_index.py
+    (labeled-gate-that-cannot-fail; label map + synonym scatter). DONE.
+  * SANDBOX-FAN-OUT fixer.py: 8 safety checks (isolated clone, verify both directions, rollback,
+    single-writer merge, dry-run, confidence gate, model-agnostic patch provider), distributed into
+    corral-work/corral/. DONE.
+  * FULL-CIRCLE-OPTIMIZATION orchestrator.py: cross-repo triangulation, 2-round cap, human-review
+    queue, aggregate SARIF. DONE. drift_guard.py covers finding.py + concepts.py (5 copies identical).
+  * SARIF consolidated into shared finding.to_sarif (one definition). DONE (refinement 7).
+  * testbed.py: 6 defect classes at 3 complexity levels + renamed variants -> 6/6 caught, 0 false
+    positives EVERYWHERE (label-independence proven). run_all_tests.py: 9/9 modules PASS. DONE (T1,T2,T7).
+  * README.md leads with the successes + how-to-use, cites the proven numbers. DONE.
+  STATUS: plan items DONE — shared contract, A2-A4 (3 detectors)+A6+A7+A8, B1+B3+B5+B6 and 2 of B2's
+  classes, C3+C4 (+C6 via orchestrator queue), D2+D3+D4. Cross-repo corroboration + human-review + the
+  safe fixer all tested.
+  STILL OWED (mostly runtime/external/Chris-gated, deliberately not rushed):
+    - mutation-based detection method (B2) — executes target tests; needs a sandbox, higher risk.
+    - reimplemented-read-path + scheduled-never-ran detectors (A4 remainder) — precision/runtime-hard.
+    - A5 organize stage + C5 apply.
+    - C2 explicit mechanical/model fix ROUTER (the patch provider is already pluggable/model-agnostic).
+    - T3 online repos, T4 old system versions, T5 agent-tier, T6 LIVE — need external systems/models
+      or Chris's live system (the other session must free it first).
+    - GitHub-side renames (rag-ghost->FULL-RESET-GRAPH, corral->SANDBOX-FAN-OUT) + any push/release —
+      need Chris's token; public acts. Python package renames deferred (invasive; break existing tests).
