@@ -17,6 +17,7 @@ MODULES = [
     ("fullcircle.structural", "selftest"),
     ("fullcircle.drift_guard", "selftest"),
     ("fullcircle.fixer", "selftest"),
+    ("fullcircle.patches", "selftest"),
     ("fullcircle.orchestrator", "selftest"),
     ("fullcircle.testbed", "selftest"),
     ("claimproof.multimethod", "selftest"),

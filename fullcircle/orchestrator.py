@@ -172,7 +172,23 @@ if __name__ == "__main__":
         sys.exit(selftest())
     target = [a for a in sys.argv[1:] if not a.startswith("-")][0]
     finders = _wire_real_finders()
-    rep = run(target, finders)
+    fixer_hook = None
+    if "--fix" in sys.argv:                               # apply only SAFE mechanical fixes
+        try:
+            from . import fixer as _fx, patches as _pt
+        except ImportError:
+            import fixer as _fx, patches as _pt          # type: ignore
+
+        def _combined(dir_):
+            raw = []
+            for f in finders:
+                raw.extend(f(dir_))
+            return triangulate(raw)
+
+        def fixer_hook(auto, root):                       # noqa: F811  (matches run()'s fixer sig)
+            rep = _fx.apply_fixes(root, auto, _pt.dispatch, _combined, dry_run=False)
+            return len(rep["applied"])
+    rep = run(target, finders, fixer=fixer_hook)
     for rd in rep["rounds"]:
         print("round %(round)d: %(total)d findings (%(new)d new, %(corroborated)d corroborated, "
               "%(auto_fixable)d auto-fixable, %(needs_human)d need you)" % rd)
