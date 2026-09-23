@@ -36,14 +36,34 @@ def _swap_compare(op):
     return t() if t else None
 
 
-def mutants(src: str):
-    """Yield (description, mutated_source) -- each with exactly ONE node changed."""
+def _is_main_guard(node) -> bool:
+    t = getattr(node, "test", None)
+    return (isinstance(node, ast.If) and isinstance(t, ast.Compare)
+            and isinstance(t.left, ast.Name) and t.left.id == "__name__")
+
+
+def mutants(src: str, skip_funcs=("selftest",)):
+    """Yield (description, mutated_source) -- each with exactly ONE node changed.
+
+    Nodes inside a skip_funcs function (default the in-file `selftest`) or the `if __name__ ==
+    '__main__'` guard are NOT mutated: their mutants are structurally unkillable when the test
+    command IS that same file's selftest (a failure branch that never runs in a green baseline, or
+    the guard that launches it), so counting them only depresses the score of every self-testing
+    repo without measuring product-code coverage. Added 2026-09-23."""
     try:
         tree = ast.parse(src)
     except SyntaxError:
         return
+    skip_ids = set()
+    for n in ast.walk(tree):
+        if (isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in skip_funcs) \
+                or _is_main_guard(n):
+            for d in ast.walk(n):
+                skip_ids.add(id(d))
     nodes = list(ast.walk(tree))
     for i, node in enumerate(nodes):
+        if id(node) in skip_ids:
+            continue
         variants = []
         if isinstance(node, ast.Compare) and node.ops:
             sw = _swap_compare(node.ops[0])
@@ -155,7 +175,11 @@ def selftest() -> int:
 
 if __name__ == "__main__":
     import sys
-    if "--selftest" in sys.argv or len(sys.argv) == 1:
+    # Self-invoke ONLY when --selftest is the sole argument (or none). A broad
+    # `"--selftest" in sys.argv` misfired whenever the TEST COMMAND contained --selftest,
+    # which is the standard test command in this system -- so mutation testing of any
+    # selftest-driven suite silently ran mutation.py's own selftest instead. Caught 2026-09-23.
+    if sys.argv[1:] == ["--selftest"] or len(sys.argv) == 1:
         sys.exit(selftest())
     # CLI: mutation.py <repo> <test-cmd...> --files a.py b.py
     argv = sys.argv[1:]

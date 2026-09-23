@@ -192,8 +192,9 @@ def selftest() -> int:
     flag = Finding("test", "dead-canary", "t_a.py:1", "mutation survived", method="mutation")
     clr = Finding("test", "clean-verdict", "t_a.py:1", "asserts on real return", method="ast")
     dis = method_disagreements([flag, clr])
-    if len(dis) != 1:
-        print("FAIL: a flag+clear on one location should disagree ->", dis); ok = False
+    #    and it names the RIGHT direction: mutation flagged it, ast cleared it (not the reverse).
+    if len(dis) != 1 or "flagged by {mutation}" not in dis[0] or "called clean by {ast}" not in dis[0]:
+        print("FAIL: a flag+clear on one location should disagree, naming who flagged vs cleared ->", dis); ok = False
 
     # 6. two methods that BOTH flag (no clear) do NOT count as a disagreement
     dis2 = method_disagreements([f_ast, f_mut])
@@ -203,6 +204,45 @@ def selftest() -> int:
     # 7. concept must be a known concept (portability contract)
     if f_ast.concept not in CONCEPTS:
         print("FAIL: concept not in the shared list"); ok = False
+
+    # 8. corroboration >=2 but NO method proved both directions -> 'multi-method', NOT corroborated.
+    #    This is the whole trust ladder: two methods AGREEING is only trustworthy once at least one
+    #    of them proved it fires on known-bad and stays quiet on known-good (both_directions).
+    g1 = Finding("wire", "function-unwired", "m.py:5", "no caller", method="ast")
+    g2 = Finding("wire", "function-unwired", "m.py:5", "no caller", method="callgraph")
+    t8 = triangulate([g1, g2])
+    if t8[0].corroboration != 2 or t8[0].trust != "multi-method":
+        print("FAIL: 2 methods, neither proven, must be multi-method not corroborated ->",
+              t8[0].trust); ok = False
+
+    # 9. triangulate sorts most-corroborated FIRST (a reader trusts the lead).
+    t9 = triangulate([g1, g2, f_other])
+    if t9[0].corroboration != 2 or t9[-1].corroboration != 1:
+        print("FAIL: triangulate must sort most-corroborated first ->",
+              [x.corroboration for x in t9]); ok = False
+
+    # 10. to_json serialises faithfully AND deterministically (sorted keys -> stable diffs).
+    d = json.loads(f_ast.to_json())
+    if d.get("defect_class") != "no-clean-without-looking" or "concept" not in d \
+            or d.get("both_directions_proven") is not True:
+        print("FAIL: to_json must serialise the finding faithfully ->", d); ok = False
+    if not f_ast.to_json().startswith('{"both_directions_proven"'):
+        print("FAIL: to_json must sort keys (stable output)"); ok = False
+
+    # 11. SARIF: a corroborated finding is an error, a single-method lead is a warning, rules listed.
+    sar = to_sarif(triangulate([f_ast, f_mut, f_other]), "test-tool")
+    #    check the level attaches to the RIGHT finding (a swapped mapping keeps the level SET
+    #    identical, so asserting the set alone cannot catch it) -- key off each message's trust word.
+    lvl = {}
+    for r in sar["runs"][0]["results"]:
+        for word in ("corroborated", "single-method"):
+            if word in r["message"]["text"]:
+                lvl[word] = r["level"]
+    if lvl.get("corroborated") != "error" or lvl.get("single-method") != "warning":
+        print("FAIL: SARIF level must follow trust (corroborated=error, single-method=warning) ->",
+              lvl); ok = False
+    if not sar["runs"][0]["tool"]["driver"]["rules"]:
+        print("FAIL: SARIF must list the rule ids"); ok = False
 
     print("selftest", "PASS" if ok else "FAIL")
     return 0 if ok else 1
