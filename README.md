@@ -30,12 +30,12 @@ whole thing with **every symbol renamed**:
 
 ```
 $ python3 fullcircle/testbed.py
-  basic              5/5 caught  0 false-pos   OK
-  basic+renamed      5/5 caught  0 false-pos   OK
-  medium             5/5 caught  0 false-pos   OK
-  medium+renamed     5/5 caught  0 false-pos   OK
-  complex            5/5 caught  0 false-pos   OK
-  complex+renamed    5/5 caught  0 false-pos   OK
+  basic              6/6 caught  0 false-pos   OK
+  basic+renamed      6/6 caught  0 false-pos   OK
+  medium             6/6 caught  0 false-pos   OK
+  medium+renamed     6/6 caught  0 false-pos   OK
+  complex            6/6 caught  0 false-pos   OK
+  complex+renamed    6/6 caught  0 false-pos   OK
   VERDICT: 100% on intended jobs, 0 false positives
 ```
 
@@ -48,6 +48,7 @@ The `+renamed` rows are the label-independence proof: catch rate does not move w
 - **second-door duplicate** — the same code at two paths; a fix to one misses the other (FULL-RESET-GRAPH: same-inode + same-content)
 - **conflicting definition** — one constant, different values in two files (FULL-RESET-GRAPH: constant-conflict + value-type-mismatch)
 - **unwired function** — defined and complete, nothing calls it (FULL-RESET-GRAPH: no-call-edge + no-reference)
+- **swallowed exception** — an error turned into a success-looking result (claimproof: silent-swallow + returns-success)
 
 Each is found by **two independent methods**; where they agree the finding is marked *corroborated*.
 A finding only one method saw is a *lead*, routed to human review rather than auto-fixed.

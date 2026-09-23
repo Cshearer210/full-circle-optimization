@@ -78,6 +78,15 @@ def gen_system(root, level="basic", rng=None):
        "def validate_token(t):\n    if not t:\n        raise ValueError('no')\n    return t\n"
        "validate_token('ok')\n")
 
+    # PLANT 6: a swallowed exception (failure returned as success)
+    _w(root, "pkg/swallow_bad.py",
+       "def load_cfg():\n    try:\n        risky()\n    except Exception:\n        return True\nload_cfg()\n")
+    ground.append(("swallowed-exception", "swallow_bad.py"))
+
+    # CONTROL: a proper handler that re-raises -- must NOT be flagged
+    _w(root, "pkg/goodio.py",
+       "def save_cfg():\n    try:\n        risky()\n    except Exception:\n        raise\nsave_cfg()\n")
+
     # CONTROL: a fully-wired helper module (all functions called) -- must NOT be flagged unwired
     _w(root, "pkg/util.py", "def helper():\n    return 1\ndef _run():\n    return helper()\n_run()\n")
 
@@ -97,7 +106,7 @@ def get_findings(root):
 
 
 _CONTROL_MARKERS = ("test_good", "helper", "_run", "compute", "UNIQUE_", "f_", "c_", "mod_",
-                    "validate_token")
+                    "validate_token", "save_cfg", "goodio")
 
 
 def score(root, ground):
