@@ -672,6 +672,15 @@ def selftest() -> int:
                 print("FAIL: an @abstractmethod was flagged as a stub"); ok = False
         finally:
             shutil.rmtree(d5, ignore_errors=True)
+        # INVARIANT: every finding these calibrated detectors emit carries its both-directions
+        # proof (it fired on known-bad AND stayed quiet on known-good). A finding lacking it would
+        # silently downgrade corroboration trust -- so this is a real property, not just coverage.
+        for label, tset in (("dup", tri), ("conflict", tri3), ("unwired", tri4), ("stub", tri5)):
+            for t in tset:
+                for f in t.findings:
+                    if not f.both_directions_proven:
+                        print("FAIL: %s finding lacks both-directions proof -> %s"
+                              % (label, f.location)); ok = False
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
