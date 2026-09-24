@@ -103,13 +103,26 @@ _MUT_IGNORE = shutil.ignore_patterns(".env", ".env.*", ".git", ".venv", "venv", 
                                      "__pycache__", "*.pyc", ".pytest_cache", "*.egg-info")
 
 
+def _test_env(copydir):
+    """PYTHONPATH the copy's OWN tree first, so pytest imports the MUTATED copy -- not an
+    editable install whose .pth still points at the original source (which makes every mutant
+    invisible and reports a false 100%). Harmless for repos without a src/ layout."""
+    env = dict(os.environ)
+    ahead = [copydir, os.path.join(copydir, "src")]
+    if env.get("PYTHONPATH"):
+        ahead.append(env["PYTHONPATH"])
+    env["PYTHONPATH"] = os.pathsep.join(ahead)
+    return env
+
+
 def run(repo: str, test_cmd, files, max_mutants=60, timeout=120) -> dict:
     """test_cmd: list argv run inside the repo copy. files: source files (rel to repo) to mutate."""
     # baseline: the suite must PASS on an unmutated copy, or the score is meaningless
     base = tempfile.mkdtemp(prefix="mut_base_")
     try:
         shutil.copytree(repo, os.path.join(base, "r"), ignore=_MUT_IGNORE)
-        r = subprocess.run(test_cmd, cwd=os.path.join(base, "r"), capture_output=True, timeout=timeout)
+        r = subprocess.run(test_cmd, cwd=os.path.join(base, "r"), capture_output=True,
+                           timeout=timeout, env=_test_env(os.path.join(base, "r")))
         if r.returncode != 0:
             return {"error": "baseline suite does not pass; cannot mutation-test", "rc": r.returncode}
     except (subprocess.TimeoutExpired, OSError) as e:
@@ -134,7 +147,8 @@ def run(repo: str, test_cmd, files, max_mutants=60, timeout=120) -> dict:
                 shutil.copytree(repo, dst, ignore=_MUT_IGNORE)
                 open(os.path.join(dst, rel), "w", encoding="utf-8").write(msrc)
                 try:
-                    r = subprocess.run(test_cmd, cwd=dst, capture_output=True, timeout=timeout)
+                    r = subprocess.run(test_cmd, cwd=dst, capture_output=True, timeout=timeout,
+                                       env=_test_env(dst))
                     if r.returncode != 0:
                         killed += 1                      # a test went red -> the mutation was caught
                     else:
