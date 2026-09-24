@@ -51,6 +51,12 @@ class Finding:
     ignored_label: str = ""      # a label this detector deliberately did NOT rely on (portability proof)
     fixable_by: str = ""         # which repo/stage can fix it, "" = human decision
     status: str = "found"        # found | verified | fixed | regressed
+    source_span: str = ""        # the EXACT code span the finding points at ("file:start-end" or a
+                                 # short snippet) -- tighter than `location`, so a grader can re-open
+                                 # and diff it (bookmark #6: source-span-grounded findings)
+    evidence_strength: str = "unspecified"  # measured | cited | circumstantial | unspecified;
+                                 # "cited" = evidence is only a comment/docstring (the weak
+                                 # CITED-IS-CODE case) so a grader can discount it
     extra: dict[str, Any] = field(default_factory=dict)
 
     def identity(self) -> str:
@@ -202,6 +208,16 @@ def selftest() -> int:
     tri2 = triangulate([f_other])
     if tri2[0].trust != "single-method":
         print("FAIL: one method should be single-method ->", tri2[0].trust); ok = False
+
+    # 4b. source-span schema (bookmark #6): the two new fields round-trip through to_json, and the
+    # defaults are safe for every finding that does not set them.
+    fs = Finding("read", "swallowed-exception", "svc.py:12", "except: pass swallows all",
+                 method="ast", source_span="svc.py:12-14", evidence_strength="measured")
+    d = json.loads(fs.to_json())
+    if d.get("source_span") != "svc.py:12-14" or d.get("evidence_strength") != "measured":
+        print("FAIL: source_span/evidence_strength must round-trip ->", d); ok = False
+    if json.loads(f_other.to_json()).get("evidence_strength") != "unspecified":
+        print("FAIL: evidence_strength must default to 'unspecified'"); ok = False
 
     # 5. method_disagreements: one method flags a spot, another clears it -> a finding.
     flag = Finding("test", "dead-canary", "t_a.py:1", "mutation survived", method="mutation")
