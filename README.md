@@ -158,6 +158,19 @@ randomised systems, 100% caught, 0 false positives.** Every module also ships a 
 proves it fires on a known-bad case **and** stays quiet on a known-good one — a detector proven in
 only one direction is not proven.
 
+On top of the selftests there is a **pytest suite of 239 tests** (`tests/`) that exercises every
+module directly — happy paths, edge and boundary cases, error/exception paths, the corroboration
+logic, and the SARIF output shape — plus a handful of property-based tests. Both run in CI:
+
+```bash
+python3 run_all_tests.py          # the module selftests (standard library only)
+python3 -m pytest -q tests        # the pytest suite: 239 passing
+```
+
+Line+branch coverage of the `fullcircle` package is **81%** (measured with `coverage` over the
+pytest suite; the uncovered remainder is mostly the `__main__` CLI blocks and the selftests'
+failure-branch messages, which only execute when a check actually fails).
+
 ## Status
 
 | Component | State |

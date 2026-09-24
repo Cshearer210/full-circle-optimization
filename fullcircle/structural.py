@@ -59,7 +59,6 @@ def _second_door(root: str) -> list[Finding]:
     same-content only."""
     by_inode: dict[tuple, list[str]] = {}
     by_hash: dict[str, list[str]] = {}
-    inode_hash: dict[str, tuple] = {}                    # content-hash -> (dev,ino) when shared
     for path in _walk(root, (".py",)):
         rel = os.path.relpath(path, root)
         if os.path.basename(path) == "__init__.py":

@@ -1,0 +1,7 @@
+# Development-only dependencies. The RUNTIME package (`fullcircle`) has ZERO dependencies and needs
+# none of these to run -- they are only for running the test suite, measuring coverage, and linting.
+#   pip install -r requirements-dev.txt
+pytest>=8,<10
+coverage>=7
+ruff>=0.6
+hypothesis>=6

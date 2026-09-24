@@ -19,8 +19,6 @@ one is supplied, else it simply re-finds (and converges when nothing new appears
 """
 from __future__ import annotations
 
-import os
-
 try:
     from .finding import Finding, triangulate, to_sarif, Triangulated
 except ImportError:

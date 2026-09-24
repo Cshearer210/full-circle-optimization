@@ -28,11 +28,6 @@ import os
 import shutil
 import tempfile
 
-try:
-    from .finding import Triangulated
-except ImportError:
-    from finding import Triangulated  # type: ignore
-
 _SKIP = {".git", "node_modules", "__pycache__", ".venv", "venv"}
 
 

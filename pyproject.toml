@@ -1,0 +1,37 @@
+# Tooling configuration only. The runtime package `fullcircle` is pure standard library and needs
+# no build step or install; this file just centralises the dev tools (pytest, coverage, ruff) so CI
+# and a local checkout agree. Dev-tool versions live in requirements-dev.txt.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+branch = true
+source = ["fullcircle"]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# E/F/W are the correctness basics -- unused imports, undefined names, obvious mistakes -- so the
+# lint step is a real signal. The style rules that fire on this codebase's DELIBERATE conventions
+# are turned off rather than churned away.
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # long lines: some tabular comments and inline fixtures run past 100 on purpose
+    "E741",  # a couple of SARIF-location loops mirror the dict key `l`
+    "E702",  # the module selftests use `print(...); ok = False` one-liners throughout, by design
+    "E401",  # `import tempfile, shutil` grouping in selftests, by design
+    "E402",  # a few modules insert the repo root on sys.path before importing the package
+]
+
+[tool.ruff.lint.per-file-ignores]
+# tests build tiny Python source strings and re-import modules under aliases on purpose.
+"tests/*" = ["F811"]
