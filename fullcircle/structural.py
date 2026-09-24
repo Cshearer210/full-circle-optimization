@@ -826,6 +826,64 @@ def selftest() -> int:
                 print("FAIL: an unused import inside __init__.py was flagged (kills 375)"); ok = False
         finally:
             shutil.rmtree(dU, ignore_errors=True)
+        # ---- NEW-CODE COVERAGE 2026-09-23: kill mutation survivors from repo-improve fixes ----
+        # _literal_repr canonicalization (dict/set order-insensitive + ** unpack) -- direct unit checks
+        import ast as _ast
+        def _lr(src):
+            return _literal_repr(_ast.parse(src, mode="eval").body)
+        if _lr("{'b': 2, 'a': 1}") != _lr("{'a': 1, 'b': 2}"):
+            print("FAIL: dict repr not order-canonical"); ok = False
+        if _lr("{3, 2, 1}") != _lr("{1, 2, 3}"):
+            print("FAIL: set repr not order-canonical"); ok = False
+        if _lr("{'a': 1, 'b': 2}") != "{'a': 1, 'b': 2}":
+            print("FAIL: dict repr format wrong ->", _lr("{'a': 1, 'b': 2}")); ok = False
+        if _lr("{2, 1}") != "{1, 2}":
+            print("FAIL: set repr format wrong ->", _lr("{2, 1}")); ok = False
+        if "**" not in (_lr("{**BASE, 'y': 2}") or ""):
+            print("FAIL: ** unpack not represented in dict repr (kills the k-is-not-None branch)"); ok = False
+
+        # AnnAssign module constants: a type-annotated constant conflict is detected; a <=2-char name
+        # is ignored (len>2 guard). The old conf test used only ast.Assign, so AnnAssign was uncovered.
+        dAA = tempfile.mkdtemp(prefix="sAA_")
+        try:
+            write(dAA, "aa.py", "PORT: int = 8080\nDB: str = 'x'\n")
+            write(dAA, "ab.py", "PORT: int = 9090\nDB: str = 'y'\n")
+            confAA = {t.findings[0].extra.get("id_key")
+                      for t in scan(dAA) if t.defect_class == "conflicting-definition"}
+            if "conflict:PORT" not in confAA:
+                print("FAIL: annotated-constant conflict PORT not detected (kills AnnAssign branch)"); ok = False
+            if "conflict:DB" in confAA:
+                print("FAIL: a 2-char annotated name treated as a constant (kills len>2 guard)"); ok = False
+        finally:
+            shutil.rmtree(dAA, ignore_errors=True)
+
+        # wildcard import: `from x import *` sets star, which suppresses unused-import findings for
+        # that whole file. star False would report a false unused-import. No selftest exercised star.
+        dST = tempfile.mkdtemp(prefix="sST_")
+        try:
+            write(dST, "st.py", "from os import *\nimport json\nprint(getcwd())\n")
+            uiST = {f.ignored_label for t in scan(dST)
+                    if t.defect_class == "unused-import" for f in t.findings}
+            if "json" in uiST:
+                print("FAIL: unused-import reported despite a wildcard import (kills star guard)"); ok = False
+        finally:
+            shutil.rmtree(dST, ignore_errors=True)
+
+        # bare-except: a bare `except:` (type is None) is flagged; a typed `except ValueError:` is
+        # NOT. _bare_except is in DETECTORS but had no fixture, so `node.type is None` was uncovered.
+        dBE = tempfile.mkdtemp(prefix="sBE_")
+        try:
+            write(dBE, "be.py",
+                  "def risky():\n    try:\n        return 1\n    except:\n        return 2\n"
+                  "def safe():\n    try:\n        return 3\n    except ValueError:\n        return 4\n")
+            beF = [t for t in scan(dBE) if t.defect_class == "bare-except"]
+            if not any(t.location.endswith(":4") for t in beF):
+                print("FAIL: the bare except: (line 4) was not flagged (kills node.type is None)"); ok = False
+            if any(t.location.endswith(":9") for t in beF):
+                print("FAIL: a typed except was flagged as bare (kills node.type is None)"); ok = False
+        finally:
+            shutil.rmtree(dBE, ignore_errors=True)
+
         # INVARIANT: every finding these calibrated detectors emit carries its both-directions
         # proof (it fired on known-bad AND stayed quiet on known-good). A finding lacking it would
         # silently downgrade corroboration trust -- so this is a real property, not just coverage.
