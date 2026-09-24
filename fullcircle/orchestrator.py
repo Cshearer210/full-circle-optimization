@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 # CALLED BY: the FULL-CIRCLE-OPTIMIZATION CLI (python -m fullcircle.orchestrator <target>).
 # FIRES WHEN: running the whole portfolio as one team over a target system.
-"""FULL-CIRCLE-OPTIMIZATION -- the thin linker (Chris, 2026-09-23).
+"""FULL-CIRCLE-OPTIMIZATION -- the thin linker.
 
 It owns NO detection or fix logic. It:
   1. collects RAW findings from every finder (claimproof silent + FULL-RESET-GRAPH structural),
-  2. TRIANGULATES them together so a defect two DIFFERENT REPOS find corroborates (the reliability
+  2. TRIANGULATES them together so a defect two DIFFERENT TOOLS find corroborates (the reliability
      story: overlapping methods across tools, not just within one),
-  3. runs at most 2 ROUNDS (refinement 3: cap at 2, then do output work for a day or two and re-run
-     when there is new data),
+  3. runs at most 2 ROUNDS (cap at 2, then re-run later when there is new data),
   4. routes judgment items -- conflicts, laws/rules, single-method leads -- to a HUMAN-REVIEW QUEUE
-     rather than auto-fixing them (refinement 4: a human eye at each stage),
+     rather than auto-fixing them (a human eye at each stage),
   5. emits one aggregate SARIF + a run report.
 
 A finder is any callable(root) -> list[Finding]. In production the two real finders are wired in
@@ -27,7 +26,7 @@ try:
 except ImportError:
     from finding import Finding, triangulate, to_sarif, Triangulated  # type: ignore
 
-# defect classes that a human must rule on, never a bot (Chris: laws/rules/conflicts need a human eye)
+# defect classes that a human must rule on, never a bot (conflicts/rules need a human eye)
 JUDGMENT_CLASSES = {"conflicting-definition", "conflicting-instruction", "law-or-rule-change"}
 
 
@@ -77,8 +76,8 @@ def run(root, finders, fixer=None, max_rounds=2) -> dict:
         "human_review_queue": review,
         "auto_fixable": auto,
         "sarif": to_sarif(last_tri, "full-circle-optimization"),
-        "message": ("Ran %d round(s), capped at %d. Do output/other work for a day or two so the "
-                    "tools have new data, then re-run. %d item(s) need your eye."
+        "message": ("Ran %d round(s), capped at %d; re-run later once the code has changed. "
+                    "%d item(s) need a human decision."
                     % (len(rounds), max_rounds, len(review))),
     }
 
@@ -152,44 +151,36 @@ def selftest() -> int:
         print("FAIL: a converged run should stop at 2 rounds, not run to max ->",
               len(rep3["rounds"])); ok = False
 
-    # 9. _wire_real_finders() is idempotent: calling it twice must NOT duplicate the claimproof path
-    #    on sys.path. (kills L154  os.path.isdir(cp) and cp not in sys.path -> OR)
-    import sys as _sys
-    _cp = os.path.expanduser("~/PureEuphoria/claimproof/src")
-    if os.path.isdir(_cp):
-        _sys.path[:] = [p for p in _sys.path if p != _cp]     # start from a known-clean state
-        _wire_real_finders(); _wire_real_finders()
-        if _sys.path.count(_cp) != 1:
-            print("FAIL: _wire_real_finders duplicated the claimproof path on sys.path ->",
-                  _sys.path.count(_cp)); ok = False
+    # 9. _wire_real_finders() always wires the in-repo structural finder and is stable across calls
+    #    (calling it twice returns the same finder count -- no companion path is duplicated).
+    n1 = len(_wire_real_finders())
+    n2 = len(_wire_real_finders())
+    if n1 < 1 or n1 != n2:
+        print("FAIL: _wire_real_finders unstable or empty ->", n1, n2); ok = False
 
     print("selftest", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
 
 def _wire_real_finders():
-    """Best-effort wiring of the two real finders; returns the list of those importable."""
+    """Best-effort wiring of the real finders; returns the list of those available.
+
+    The structural finder ships in this repo and is always wired. The silent-defect finder lives in
+    a separate companion repo (claimproof) and is added only when it is importable -- so the
+    orchestrator runs whether or not the companion is installed."""
     finders = []
     try:
         from . import structural
-    except ImportError:
-        import structural                      # when run as a script, not a package
+        from ._optional import load_claimproof
+    except ImportError:                        # when run as a script, not a package
+        import structural                      # type: ignore
+        from _optional import load_claimproof  # type: ignore
     finders.append(structural.raw_findings)
-    # claimproof lives in its own repo; add it to the path if present
-    import sys
-    cp = os.path.expanduser("~/PureEuphoria/claimproof/src")
-    if os.path.isdir(cp) and cp not in sys.path:
-        sys.path.insert(0, cp)
-    try:
-        from claimproof import multimethod
+    multimethod, rag_index = load_claimproof()
+    if multimethod is not None:
         finders.append(multimethod.raw_findings)
-    except Exception:
-        pass
-    try:
-        from claimproof import rag_index
+    if rag_index is not None:
         finders.append(rag_index.raw_findings)
-    except Exception:
-        pass
     return finders
 
 

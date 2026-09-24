@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-# CALLED BY: fullcircle.pipeline (the drop-in adapter, step D1) and FULL-RESET-GRAPH's mapping stage
+# CALLED BY: the drop-in adapter and the structural finder's mapping stage
 #            (step A2/A3). Copied into FULL-RESET-GRAPH so it stands alone.
 # FIRES WHEN: a target system is first indexed -- to learn how IT labels each concept, so every
 #             downstream detector finds a concept regardless of the target's naming.
 """The portability core: classify code by BEHAVIOUR into shared CONCEPTS, then learn the target
 system's own LABELS for each concept and store them, so the synonym tool can detect a concept under
-any name (Chris, 2026-09-23: "generate the labels and definitions ... then uses the synonym tool to
-detect them during the indexing stages").
+any name: generate the labels and definitions for each concept, then use the synonym map to
+detect them during indexing.
 
 WHY THIS IS THE LOAD-BEARING PIECE: a detector that keys on names only works on systems shaped like
 the ones it was written against. This classifies by what the code DOES (AST behaviour), then RECORDS
@@ -234,7 +234,7 @@ def selftest() -> int:
         shutil.rmtree(d2, ignore_errors=True)
 
 
-    # --- mutation-hardening assertions (fable, 2026-09-23) ---
+    # --- mutation-hardening assertions ---
     # kills: line 58 (has_if = True -> False): the in-branch assignment; guarded_raise never gets set, so an if-guarded raise stops classifying as a gate. Selftest only tests the sys.exit gate path, never guarded_raise.
     import ast as _ast
     _fn = next(n for n in _ast.walk(_ast.parse("def g(x):\n    if not x:\n        raise ValueError('bad')\n")) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)))
@@ -265,14 +265,14 @@ def selftest() -> int:
     if classify_function(_fn) != "gate":
         print("FAIL: assert+exit(nonzero) must be gate not test ->", classify_function(_fn)); ok = False
 
-    # regression fixture (fable, 2026-09-23): a bare sys.exit() with no args is exit(0) / success,
+    # regression fixture: a bare sys.exit() with no args is exit(0) / success,
     # not a failure gate signal. Before the fix, arg0 was set to None and treated as exit_nonzero.
     import ast as _ast
     _fn = next(n for n in _ast.walk(_ast.parse("import sys\ndef f():\n    print('done')\n    sys.exit()\n")) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)))
     if classify_function(_fn) is not None:
         print("FAIL: bare sys.exit() wrongly classified as gate ->", classify_function(_fn)); ok = False
 
-    # regression fixture (fable, 2026-09-23): a callee name ending in "exit" that is NOT an actual
+    # regression fixture: a callee name ending in "exit" that is NOT an actual
     # exit call (on_exit/handle_exit callbacks) must never be treated as a gate signal, regardless
     # of its argument. Before the fix this matched on dotted.endswith("exit").
     import ast as _ast

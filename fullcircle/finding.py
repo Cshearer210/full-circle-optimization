@@ -2,10 +2,10 @@
 # CALLED BY: fullcircle.pipeline (the FULL-CIRCLE-OPTIMIZATION orchestrator), and copied verbatim
 #            into claimproof, FULL-RESET-GRAPH and SANDBOX-FAN-OUT as their one shared contract.
 # FIRES WHEN: any repo emits a finding, and when the orchestrator merges findings from all repos.
-"""The one shared contract for the 4 portfolio repos, and the triangulation engine.
+"""The one shared finding contract, and the triangulation engine.
 
-WHY THIS IS THE SPINE (Chris, 2026-09-23): "one tool finds things that another missed when looking
-in different methods." A finding is identified by WHAT IS WRONG WHERE -- independent of which METHOD
+WHY THIS IS THE SPINE: one method finds things that another missed when looking
+in different ways. A finding is identified by WHAT IS WRONG WHERE -- independent of which METHOD
 found it -- so two methods that find the same defect collapse to ONE finding with two methods
 attached, and a defect only one method saw is visibly less corroborated. That is the product: silent
 bugs survive because a single check has one blind spot; several independent methods triangulate them.
@@ -127,7 +127,7 @@ def triangulate(findings: list[Finding]) -> list[Triangulated]:
 
 def method_disagreements(findings: list[Finding]) -> list[str]:
     """A location one method flags and another method, run on the same location, calls clean is
-    ITSELF a finding (Chris's own law: disagreement between two counts of one population is the
+    ITSELF a finding (disagreement between two counts of one population is itself the
     finding). Callers pass in clean-verdicts as Findings with defect_class='clean-verdict'."""
     flagged: dict[str, set[str]] = {}
     cleared: dict[str, set[str]] = {}

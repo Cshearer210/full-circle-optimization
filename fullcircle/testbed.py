@@ -2,10 +2,9 @@
 # CALLED BY: the portfolio's test suite and CI (the proof across many configs).
 # FIRES WHEN: proving the finders catch every intended defect class, at 3 complexity levels, on
 #             systems they have never seen -- including a RENAMED variant (label-independence).
-"""The test bed (Chris, 2026-09-23: "test it all out thoroughly over and over ... 3 complexity
-levels ... 100% on the intended jobs"). It GENERATES fake systems with KNOWN planted defects plus
+"""The test bed. It GENERATES fake systems with KNOWN planted defects plus
 clean controls, runs every finder, and scores catch rate against ground truth. The intended jobs
-must be 100% and the controls must produce ZERO false positives before anything releases (T7).
+must be 100% and the controls must produce ZERO false positives before anything releases.
 
 The renamed variant is the label-independence proof: rename every symbol and file and the intended
 catch rate must not move -- because the detectors key on behaviour, not labels.
@@ -19,17 +18,20 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-_CP = os.path.expanduser("~/PureEuphoria/claimproof/src")
-if _CP not in sys.path:
-    sys.path.insert(0, _CP)
 sys.path.insert(0, os.path.dirname(HERE))            # for `fullcircle` package
 try:
     from fullcircle import structural
     from fullcircle.finding import triangulate
+    from fullcircle._optional import claimproof_finders, SILENT_CLASSES
 except ImportError:
     import structural
     from finding import triangulate
-from claimproof import multimethod, rag_index
+    from _optional import claimproof_finders, SILENT_CLASSES
+
+# The silent-defect finder is a separate companion tool (claimproof), wired in only if available.
+# The fullcircle structural finder always stands alone; claimproof extends the proof to the silent
+# classes. When it is absent, those classes are reported as NOT EXERCISED, never as misses.
+multimethod, rag_index, CLAIMPROOF_PRESENT = claimproof_finders()
 
 
 def _w(root, rel, body):
@@ -148,9 +150,15 @@ def run_levels(levels=("basic", "medium", "complex")):
                     ground = _rename_everything(d, ground)
                 sc = score(d, ground)
                 key = "%s%s" % (lvl, "+renamed" if rename else "")
+                # When the companion silent-defect finder is absent, its classes are NOT EXERCISED
+                # -- they are skipped, never counted as misses, so a self-contained run stays honest.
+                skipped = [(c, m) for (c, m) in sc["missed"]
+                           if c in SILENT_CLASSES and not CLAIMPROOF_PRESENT]
+                real_missed = [x for x in sc["missed"] if x not in skipped]
                 report[key] = {
-                    "intended": len(ground), "caught": len(sc["caught"]),
-                    "missed": sc["missed"], "false_positives": sc["false_positives"],
+                    "intended": len(ground) - len(skipped), "caught": len(sc["caught"]),
+                    "missed": real_missed, "skipped": skipped,
+                    "false_positives": sc["false_positives"],
                 }
             finally:
                 shutil.rmtree(d, ignore_errors=True)
@@ -183,8 +191,11 @@ def selftest() -> int:
     try:
         ground = gen_system(d, "basic")
         sc = score(d, ground)
-        if sc["missed"]:
-            print("FAIL: intended jobs not 100% ->", sc["missed"]); ok = False
+        # silent classes are only exercised when the companion finder is present
+        real_missed = [x for x in sc["missed"]
+                       if not (x[0] in SILENT_CLASSES and not CLAIMPROOF_PRESENT)]
+        if real_missed:
+            print("FAIL: intended jobs not 100% ->", real_missed); ok = False
         if sc["false_positives"]:
             print("FAIL: false positives on controls ->", sc["false_positives"]); ok = False
     finally:
@@ -214,17 +225,26 @@ if __name__ == "__main__":
     rep = run_levels()
     print("=" * 66)
     print("TEST BED -- intended-job catch rate across levels (must be 100%, 0 FP)")
+    if CLAIMPROOF_PRESENT:
+        print("companion silent-defect finder: PRESENT (all classes exercised)")
+    else:
+        print("companion silent-defect finder: not installed -- structural classes only;")
+        print("silent classes reported as SKIPPED (install claimproof to exercise them)")
     print("=" * 66)
     allok = True
     for key, r in rep.items():
         status = "OK" if r["caught"] == r["intended"] and not r["false_positives"] else "FAIL"
         if status == "FAIL":
             allok = False
-        print("  %-18s %d/%d caught  %d false-pos   %s"
-              % (key, r["caught"], r["intended"], len(r["false_positives"]), status))
+        skip = ("  (%d silent skipped)" % len(r["skipped"])) if r.get("skipped") else ""
+        print("  %-18s %d/%d caught  %d false-pos   %s%s"
+              % (key, r["caught"], r["intended"], len(r["false_positives"]), status, skip))
         for m in r["missed"]:
             print("      MISSED:", m)
         for fp in r["false_positives"]:
             print("      FALSE POSITIVE:", fp)
-    print("VERDICT:", "100% on intended jobs, 0 false positives" if allok else "NOT CLEAN")
+    verdict = "100% on intended jobs, 0 false positives" if allok else "NOT CLEAN"
+    if allok and not CLAIMPROOF_PRESENT:
+        verdict += " (structural classes; silent classes not exercised)"
+    print("VERDICT:", verdict)
     sys.exit(0 if allok else 1)

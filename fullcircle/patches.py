@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # CALLED BY: SANDBOX-FAN-OUT's fixer as the patch_provider; the orchestrator's --fix path.
 # FIRES WHEN: a corroborated, mechanically-fixable defect is being repaired on an isolated clone.
-"""Mechanical patch providers -- the tier-1 of Chris's mechanical/reasoning split (refinement 5):
+"""Mechanical patch providers -- the tier-1 of the mechanical/reasoning split:
 KNOWN class -> KNOWN patch, no model. Everything else is left to a model or to human review.
 
 Only truly-safe mechanical fixes live here. The first is removing CORROBORATED DEAD CODE: a

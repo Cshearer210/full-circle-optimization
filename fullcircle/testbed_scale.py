@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# CALLED BY: the portfolio proof suite / CI (Chris's "hundreds of provable configs" bar).
+# CALLED BY: the proof suite / CI (the hundreds-of-configs bar).
 # FIRES WHEN: proving catch rate and false-positive rate across MANY randomized systems.
-"""Scale test (Chris, 2026-09-23: "hundreds of provable configs, 100% on the intended jobs").
+"""Scale test: hundreds of provable configs, 100% on the intended jobs.
 
 testbed.py proves 7 classes on 3 FIXED systems. This generates HUNDREDS of RANDOMISED systems --
 each plants a random subset of the 7 defect classes with random names, sizes and directory noise,
@@ -21,14 +21,17 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
-sys.path.insert(0, os.path.expanduser("~/PureEuphoria/claimproof/src"))
 try:
     from fullcircle import structural
     from fullcircle.finding import triangulate
+    from fullcircle._optional import claimproof_finders, SILENT_CLASSES
 except ImportError:
     import structural
     from finding import triangulate
-from claimproof import multimethod, rag_index
+    from _optional import claimproof_finders, SILENT_CLASSES
+
+# Silent-defect finder loaded only if the companion tool is available (see _optional.py).
+multimethod, rag_index, CLAIMPROOF_PRESENT = claimproof_finders()
 
 
 def _tok(rng):
@@ -201,6 +204,7 @@ def run(n_configs=300, seed=1):
     per_class_planted, per_class_caught = {}, {}
     total_planted = fp = configs_clean = 0
     fp_examples = []
+    skipped_classes = set()
     for i in range(n_configs):
         d = tempfile.mkdtemp(prefix="scale_")
         try:
@@ -208,6 +212,11 @@ def run(n_configs=300, seed=1):
             tri = get_findings(d)
             ok = True
             for cls, tok in ground:
+                # a silent class is only exercised when the companion finder is present; otherwise
+                # it is not scored at all (never counted as a miss) -- see _optional.SILENT_CLASSES
+                if cls in SILENT_CLASSES and not CLAIMPROOF_PRESENT:
+                    skipped_classes.add(cls)
+                    continue
                 per_class_planted[cls] = per_class_planted.get(cls, 0) + 1
                 total_planted += 1
                 if any(t.defect_class == cls and _touches(t, tok) for t in tri):
@@ -228,7 +237,8 @@ def run(n_configs=300, seed=1):
             shutil.rmtree(d, ignore_errors=True)
     return {"n_configs": n_configs, "total_planted": total_planted, "configs_clean": configs_clean,
             "per_class_planted": per_class_planted, "per_class_caught": per_class_caught,
-            "false_positives": fp, "fp_examples": fp_examples}
+            "false_positives": fp, "fp_examples": fp_examples,
+            "skipped_classes": sorted(skipped_classes)}
 
 
 GLOSS = {
@@ -272,7 +282,13 @@ def _report(r) -> bool:
     if r["false_positives"]:
         allok = False
     print("  clean configs: %d/%d" % (r["configs_clean"], r["n_configs"]))
-    print("VERDICT:", "100%% catch, 0 false positives across all configs" if allok else "NOT CLEAN")
+    if r.get("skipped_classes"):
+        print("  SKIPPED (companion silent-defect finder not installed): %s"
+              % ", ".join(r["skipped_classes"]))
+    verdict = "100%% catch, 0 false positives across all configs" if allok else "NOT CLEAN"
+    if allok and r.get("skipped_classes"):
+        verdict += " (structural classes; silent classes not exercised)"
+    print("VERDICT:", verdict)
     return allok
 
 

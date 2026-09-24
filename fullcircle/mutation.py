@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # CALLED BY: the portfolio quality gate (each repo's own suite is mutation-tested) and, as a 3rd
 #            detection method, claimproof's test-cannot-fail.
-# FIRES WHEN: proving a test suite can ACTUALLY FAIL -- the deadcanary idea, in-system, for Python.
-"""Mutation testing (Chris's decision 2026-09-23: part of the 4-repo system, applied to all four).
+# FIRES WHEN: proving a test suite can ACTUALLY FAIL, in-system, for Python.
+"""Mutation testing.
 
-The deadcanary principle generalised from dbt to Python: change the code, and the tests MUST go red.
+The principle: change the code, and the tests MUST go red.
 A mutation the suite does NOT catch ("survives") is proof the tests do not cover that line -- the
 strongest possible signal that a green suite is protecting nothing.
 

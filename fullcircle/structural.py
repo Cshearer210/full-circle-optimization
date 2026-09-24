@@ -3,11 +3,11 @@
 # FIRES WHEN: mapping a target system for LOUD/structural defects (the ones a graph makes visible).
 """FULL-RESET-GRAPH's structural detectors, emitting the shared finding format so they triangulate
 with claimproof's silent findings. Every detector keys on a behavioural/structural SIGNAL, never on
-a label, so it works on an unfamiliar system (Chris, 2026-09-23).
+a label, so it works on an unfamiliar system.
 
-Detectors are added one at a time, each with a both-directions selftest, per Chris's "build piece by
-piece and test step by step". This file EXTENDS FULL-RESET-GRAPH (rag-ghost) whose graph.py already
-does MODULE-level orphan/dangling detection; these are the classes it does not yet have.
+Detectors are added one at a time, each with a both-directions selftest, built piece by piece.
+This is the structural finder (the FULL-RESET-GRAPH role): it does file- and module-level
+orphan/dangling detection plus the defect classes below.
 
   second-door-duplicate   the same code reachable at two paths -- a fix to one misses the other
   duplicate-definition    one shared constant defined in >=2 files -- the "many doors" defect
@@ -130,7 +130,7 @@ def _literal_repr(node):
 
 def _conflicting_definition(root: str) -> list[Finding]:
     """One CONSTANT name assigned DIFFERENT literal values in >=2 files -- which value wins? This is
-    Chris's 'conflicting instructions/tools/config' class at the code level. Two methods:
+    the 'conflicting instructions/tools/config' class at the code level. Two methods:
       constant-conflict    same UPPER_CASE name, different literal values across >=2 files
       value-type-mismatch  ... and those values are of different TYPES (almost certainly a real bug)
     They corroborate when a conflict is also a type mismatch."""
@@ -306,7 +306,7 @@ def _stub_implementation(root: str) -> list[Finding]:
     """A function whose body is a stub (pass / ... / raise NotImplementedError). Corroboration:
       body-is-stub   the body does nothing real
       has-callers    something already calls it
-    A stub that is CALLED is 'looks done, isn't' -- corroborated (Chris's half-finished-work class).
+    A stub that is CALLED is 'looks done, isn't' -- corroborated (the half-finished-work class).
     A stub nobody calls yet is a single-method lead. @abstractmethod stubs are skipped by design."""
     called, defs, methods = set(), [], set()
     for path in _walk(root, (".py",)):

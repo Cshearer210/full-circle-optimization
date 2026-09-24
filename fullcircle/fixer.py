@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-# CALLED BY: SANDBOX-FAN-OUT (corral) as its per-agent fix engine, and the orchestrator's fixer hook.
+# CALLED BY: the safe fix engine (the SANDBOX-FAN-OUT role), and the orchestrator's fixer hook.
 # FIRES WHEN: applying fixes to located defects in a system SANDBOX-FAN-OUT was dropped into.
-"""SANDBOX-FAN-OUT's safe fix engine (Chris, 2026-09-23: "a bunch of checks and balances that would
-make this actually function in a system it is just dropped into").
+"""The safe fix engine (the SANDBOX-FAN-OUT role): the checks and balances that let a fix be
+applied safely in a system this tool is just dropped into.
 
 The eight checks-and-balances, all mechanical here:
 
@@ -15,7 +15,7 @@ The eight checks-and-balances, all mechanical here:
   5 BEHAVIOURAL TARGETING a fix is located by the finding's structural signal, never a fixed path.
   6 ROLLBACK ON REGRESSION any fix that fails verification is discarded; the clone is thrown away.
   7 MODEL-AGNOSTIC        the patch itself comes from a pluggable provider -- a mechanical Python
-                          patch for a known class, or a model (with or without Fable). The engine
+                          patch for a known class, or a model. The engine
                           does not care which produced it.
   8 DRY-RUN FIRST         with dry_run=True nothing on the real target changes; it reports the plan.
 
