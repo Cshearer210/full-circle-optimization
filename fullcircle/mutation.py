@@ -96,12 +96,19 @@ def mutants(src: str, skip_funcs=("selftest",)):
                 continue
 
 
+# Files a mutation copy must NEVER try to read: unreadable secrets (.env*, sandbox-denied) that
+# crash copytree, and heavy dirs that make the copy slow. Skipping them makes pytest-based mutation
+# work on repos that keep a .env at the root (e.g. claimproof).
+_MUT_IGNORE = shutil.ignore_patterns(".env", ".env.*", ".git", ".venv", "venv", "node_modules",
+                                     "__pycache__", "*.pyc", ".pytest_cache", "*.egg-info")
+
+
 def run(repo: str, test_cmd, files, max_mutants=60, timeout=120) -> dict:
     """test_cmd: list argv run inside the repo copy. files: source files (rel to repo) to mutate."""
     # baseline: the suite must PASS on an unmutated copy, or the score is meaningless
     base = tempfile.mkdtemp(prefix="mut_base_")
     try:
-        shutil.copytree(repo, os.path.join(base, "r"))
+        shutil.copytree(repo, os.path.join(base, "r"), ignore=_MUT_IGNORE)
         r = subprocess.run(test_cmd, cwd=os.path.join(base, "r"), capture_output=True, timeout=timeout)
         if r.returncode != 0:
             return {"error": "baseline suite does not pass; cannot mutation-test", "rc": r.returncode}
@@ -124,7 +131,7 @@ def run(repo: str, test_cmd, files, max_mutants=60, timeout=120) -> dict:
             d = tempfile.mkdtemp(prefix="mut_")
             try:
                 dst = os.path.join(d, "r")
-                shutil.copytree(repo, dst)
+                shutil.copytree(repo, dst, ignore=_MUT_IGNORE)
                 open(os.path.join(dst, rel), "w", encoding="utf-8").write(msrc)
                 try:
                     r = subprocess.run(test_cmd, cwd=dst, capture_output=True, timeout=timeout)
