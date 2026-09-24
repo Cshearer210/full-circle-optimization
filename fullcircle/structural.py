@@ -105,8 +105,24 @@ _LITERAL = (ast.Constant, ast.Tuple, ast.List, ast.Dict, ast.Set)
 
 
 def _literal_repr(node):
-    """A stable repr of a literal assignment value, or None if not a literal."""
+    """A stable repr of a literal assignment value, or None if not a literal.
+
+    Dict and Set literals are ORDER-INSENSITIVE in Python ({'a':1,'b':2} == {'b':2,'a':1}), so
+    their repr is canonicalized by sorting entries/elements before unparsing -- otherwise two
+    files writing the same value in a different source order register as a "conflicting
+    definition" even though the values are equal. List/Tuple stay order-sensitive: order is
+    semantic there.
+    """
     try:
+        if isinstance(node, ast.Dict):
+            pairs = sorted(
+                (ast.unparse(k) if k is not None else "**", ast.unparse(v))
+                for k, v in zip(node.keys, node.values)
+            )
+            return "{" + ", ".join("%s: %s" % p for p in pairs) + "}"
+        if isinstance(node, ast.Set):
+            elts = sorted(ast.unparse(e) for e in node.elts)
+            return "{" + ", ".join(elts) + "}"
         return ast.unparse(node) if isinstance(node, _LITERAL) else None
     except Exception:
         return None
@@ -137,6 +153,19 @@ def _conflicting_definition(root: str) -> list[Finding]:
                         seen.setdefault(t.id, {}).setdefault(vr, set()).add(rel)
                         if isinstance(node.value, ast.Constant):
                             types.setdefault(t.id, set()).add(type(node.value.value).__name__)
+            elif isinstance(node, ast.AnnAssign):
+                # Type-annotated module constants (e.g. `TIMEOUT: int = 30`) were previously
+                # invisible to this whole defect class -- only ast.Assign was checked.
+                if node.value is None:
+                    continue
+                vr = _literal_repr(node.value)
+                if vr is None:
+                    continue
+                t = node.target
+                if isinstance(t, ast.Name) and t.id.isupper() and len(t.id) > 2:
+                    seen.setdefault(t.id, {}).setdefault(vr, set()).add(rel)
+                    if isinstance(node.value, ast.Constant):
+                        types.setdefault(t.id, set()).add(type(node.value.value).__name__)
     out = []
     for name, valmap in seen.items():
         files = set().union(*valmap.values())

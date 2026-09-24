@@ -36,7 +36,7 @@ def _partition(tri: list[Triangulated]):
     single-method lead that is not yet trustworthy enough to fix on an unfamiliar system)."""
     auto, review = [], []
     for t in tri:
-        if t.defect_class in JUDGMENT_CLASSES or t.trust == "single-method":
+        if t.defect_class in JUDGMENT_CLASSES or t.trust != "corroborated":
             review.append(t)
         else:
             auto.append(t)
@@ -64,7 +64,7 @@ def run(root, finders, fixer=None, max_rounds=2) -> dict:
             fixed = fixer(auto, root)                # SANDBOX-FAN-OUT applies verified fixes
         rounds.append({
             "round": r, "total": len(tri), "new": len(new),
-            "corroborated": sum(1 for t in tri if t.trust != "single-method"),
+            "corroborated": sum(1 for t in tri if t.trust == "corroborated"),
             "auto_fixable": len(auto), "needs_human": len(review), "fixed": fixed,
         })
         if r > 1 and not new and not fixed:

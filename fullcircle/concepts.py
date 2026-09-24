@@ -80,11 +80,13 @@ def _func_signals(fn: ast.AST) -> set[str]:
         elif isinstance(node, ast.Call):
             tgt = node.func
             dotted = _dotted(tgt)
-            if dotted.endswith("exit"):                     # sys.exit / os._exit / exit
-                arg0 = node.args[0] if node.args else None
-                # nonzero or non-constant exit code = a gate signalling failure
-                if arg0 is None or not (isinstance(arg0, ast.Constant) and arg0.value in (0, None)):
-                    sig.add("exit_nonzero")
+            if dotted in ("sys.exit", "os._exit", "os.abort", "exit"):  # actual exit calls only
+                if node.args:
+                    arg0 = node.args[0]
+                    # nonzero or non-constant exit code = a gate signalling failure
+                    if not (isinstance(arg0, ast.Constant) and arg0.value in (0, None)):
+                        sig.add("exit_nonzero")
+                # a bare exit() (no args) is exit(0) / success -- not a gate signal
     if has_if and "raise" in sig:
         sig.add("guarded_raise")
     return sig
@@ -262,6 +264,25 @@ def selftest() -> int:
     _fn = next(n for n in _ast.walk(_ast.parse("import sys\ndef g(x):\n    assert x\n    if not x:\n        sys.exit(2)\n")) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)))
     if classify_function(_fn) != "gate":
         print("FAIL: assert+exit(nonzero) must be gate not test ->", classify_function(_fn)); ok = False
+
+    # regression fixture (fable, 2026-09-23): a bare sys.exit() with no args is exit(0) / success,
+    # not a failure gate signal. Before the fix, arg0 was set to None and treated as exit_nonzero.
+    import ast as _ast
+    _fn = next(n for n in _ast.walk(_ast.parse("import sys\ndef f():\n    print('done')\n    sys.exit()\n")) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)))
+    if classify_function(_fn) is not None:
+        print("FAIL: bare sys.exit() wrongly classified as gate ->", classify_function(_fn)); ok = False
+
+    # regression fixture (fable, 2026-09-23): a callee name ending in "exit" that is NOT an actual
+    # exit call (on_exit/handle_exit callbacks) must never be treated as a gate signal, regardless
+    # of its argument. Before the fix this matched on dotted.endswith("exit").
+    import ast as _ast
+    _fn = next(n for n in _ast.walk(_ast.parse("def cleanup():\n    on_exit('normal shutdown')\n")) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)))
+    if classify_function(_fn) is not None:
+        print("FAIL: on_exit() callback wrongly classified as gate ->", classify_function(_fn)); ok = False
+    import ast as _ast
+    _fn = next(n for n in _ast.walk(_ast.parse("def cleanup():\n    handle_exit()\n")) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)))
+    if classify_function(_fn) is not None:
+        print("FAIL: handle_exit() callback wrongly classified as gate ->", classify_function(_fn)); ok = False
 
     # kills: line 118 (any(claim word) and len<120 -> and flipped to or): any short string (nearly all of them) would then be collected as a completion claim. Selftest only checks a real claim IS collected, never that non-claims are excluded.
     import ast as _ast

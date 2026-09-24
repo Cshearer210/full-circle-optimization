@@ -137,6 +137,24 @@ def method_disagreements(findings: list[Finding]) -> list[str]:
     return out
 
 
+def _sarif_locations(location: str) -> list[dict]:
+    """A finding's `location` carries THREE shapes (see the Finding.location docstring): a plain
+    file:line, a pipe-joined duplicate path-set ("a/util.py | b/util.py"), or a structural locator
+    ("call-graph:orphan:mod.f"). Only the first is a real file position -- the other two must never
+    be emitted as a physicalLocation.uri, or the annotation points at a path that does not exist."""
+    if " | " in location:
+        # a duplicate found across more than one path -- one physicalLocation per real path.
+        paths = [p.strip() for p in location.split(" | ") if p.strip()]
+        return [{"physicalLocation": {"artifactLocation": {"uri": p}}} for p in paths]
+    path, sep, rest = location.partition(":")
+    if sep and rest.isdigit():
+        return [{"physicalLocation": {
+            "artifactLocation": {"uri": path},
+            "region": {"startLine": int(rest)}}}]
+    # a structural locator (no single file:line shape) -- a logical location, never a fabricated uri.
+    return [{"logicalLocations": [{"fullyQualifiedName": location}]}]
+
+
 def to_sarif(tri: list[Triangulated], tool_name: str) -> dict:
     """The ONE SARIF 2.1.0 emitter for every repo (one definition, many readers). Findings annotate
     code inline in GitHub's UI; corroboration is carried in the message so a reviewer sees how many
@@ -145,15 +163,12 @@ def to_sarif(tri: list[Triangulated], tool_name: str) -> dict:
     results = []
     for t in tri:
         rules[t.defect_class] = None
-        path, _, line = t.location.partition(":")
         results.append({
             "ruleId": t.defect_class,
             "level": "warning" if t.trust == "single-method" else "error",
             "message": {"text": "%s [%s] found by %d method(s): %s"
                         % (t.defect_class, t.trust, t.corroboration, ", ".join(t.methods))},
-            "locations": [{"physicalLocation": {
-                "artifactLocation": {"uri": path},
-                "region": {"startLine": int(line) if line.split("|")[0].strip().isdigit() else 1}}}],
+            "locations": _sarif_locations(t.location),
         })
     return {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0",
             "runs": [{"tool": {"driver": {"name": tool_name,
@@ -243,6 +258,27 @@ def selftest() -> int:
               lvl); ok = False
     if not sar["runs"][0]["tool"]["driver"]["rules"]:
         print("FAIL: SARIF must list the rule ids"); ok = False
+
+    # 12. SARIF must never fabricate a physicalLocation for a non-file:line location -- a
+    #     pipe-joined duplicate path-set becomes one physicalLocation per real path, and a
+    #     structural locator becomes a logicalLocation, never a truncated/garbled uri.
+    f_pipe = Finding("read", "same-content-duplicate", "a/util.py | b/util.py", "",
+                      method="same-content", both_directions_proven=True, severity="high")
+    f_struct = Finding("wire", "function-unwired", "call-graph:orphan:mod.f", "no caller",
+                        method="callgraph")
+    sar2 = to_sarif(triangulate([f_pipe]), "test-tool")
+    locs = sar2["runs"][0]["results"][0]["locations"]
+    uris = [l.get("physicalLocation", {}).get("artifactLocation", {}).get("uri") for l in locs]
+    if uris != ["a/util.py", "b/util.py"]:
+        print("FAIL: pipe-joined location must become one physicalLocation per real path ->",
+              locs); ok = False
+
+    sar3 = to_sarif(triangulate([f_struct]), "test-tool")
+    locs3 = sar3["runs"][0]["results"][0]["locations"]
+    if "physicalLocation" in locs3[0] or \
+            locs3[0].get("logicalLocations", [{}])[0].get("fullyQualifiedName") != "call-graph:orphan:mod.f":
+        print("FAIL: a structural locator must become a logicalLocation, never a fabricated uri ->",
+              locs3); ok = False
 
     print("selftest", "PASS" if ok else "FAIL")
     return 0 if ok else 1

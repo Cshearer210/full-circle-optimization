@@ -66,7 +66,7 @@ def apply_fixes(root, findings, patch_provider, finder, *, dry_run=True,
         if t.identity in seen:
             continue
         seen.add(t.identity)
-        if require_corroborated and t.trust == "single-method":
+        if require_corroborated and t.trust != "corroborated":
             continue
         if t.max_confidence < min_confidence:
             continue
@@ -267,6 +267,37 @@ def selftest() -> int:
             print("FAIL: single-method finding was attempted under the default -- require_corroborated default is not True ->", rep60["attempted"]); ok = False
     finally:
         shutil.rmtree(r60, ignore_errors=True)
+
+    # KILL line 69: require_corroborated must exclude MULTI-METHOD findings too, not just
+    # single-method ones. A multi-method finding (corroboration>=2 but both_directions_any is
+    # False) is explicitly NOT "corroborated" per finding.py -- it must not be auto-attempted
+    # under the default, the same as a single-method finding.
+    r69 = _tf.mkdtemp(prefix="sfo_dflt69_")
+    try:
+        try:
+            from .finding import Finding as _F69, triangulate as _tri69
+        except ImportError:
+            from finding import Finding as _F69, triangulate as _tri69
+        open(os.path.join(r69, "bad.py"), "w").write("# DEADCANARY z\n")
+        multi = _tri69([
+            _F69("test", "test-cannot-fail", "bad.py", signal="marker",
+                 method="m1", confidence=0.8, both_directions_proven=False,
+                 extra={"id_key": "dc:bad.py"}),
+            _F69("test", "test-cannot-fail", "bad.py", signal="marker",
+                 method="m2", confidence=0.8, both_directions_proven=False,
+                 extra={"id_key": "dc:bad.py"}),
+        ])
+        if multi[0].trust != "multi-method":
+            print("FAIL: setup69 -- finding should be multi-method ->", multi[0].trust); ok = False
+        def _good69(t, work):
+            fp = os.path.join(work, t.location)
+            open(fp, "w").write(open(fp).read().replace("DEADCANARY", "ok"))
+            return True
+        rep69 = apply_fixes(r69, multi, _good69, finder, dry_run=True)   # NO require_corroborated kwarg
+        if rep69["attempted"] != 0:
+            print("FAIL: multi-method finding was attempted under the default -- require_corroborated must require trust=='corroborated' ->", rep69["attempted"]); ok = False
+    finally:
+        shutil.rmtree(r69, ignore_errors=True)
 
     # KILL lines 65 / 113 / 114: exercise the single-writer merge conflict path, which the
     # existing selftest never reaches (it only ever has ONE finding). Two corroborated findings
