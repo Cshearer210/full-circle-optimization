@@ -11,6 +11,7 @@ import pytest
 from fullcircle import fixer
 from fullcircle.fixer import _diff, _snapshot, apply_fixes
 from fullcircle.finding import Finding, triangulate
+from fullcircle.concepts import rel_id
 
 
 def marker_finder(root):
@@ -25,7 +26,7 @@ def marker_finder(root):
             except OSError:
                 continue
             if "DEADCANARY" in txt:
-                rel = os.path.relpath(p, root)
+                rel = rel_id(p, root)
                 for m in ("m1", "m2"):
                     out.append(Finding("test", "test-cannot-fail", rel, signal="marker",
                                        method=m, confidence=0.8, both_directions_proven=True,

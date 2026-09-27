@@ -6,16 +6,55 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # ⭐ THREE OPERATING SYSTEMS, not one. Added 2026-09-27 after this repo's own sibling shipped
+    # three Windows-only path defects an ubuntu-only matrix could not see, and after 12 sites in
+    # THIS repo were found keying identifiers on `os.path.relpath` -- which returns a different
+    # string per platform, so every test passed on each platform separately while the two disagreed.
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Run the full self-test suite (standard library only, no install step)
-        run: python3 run_all_tests.py
+      - name: Every module's own selftest, both directions (no install needed)
+        run: python run_all_tests.py
+      - name: Install the declared test dependencies
+        run: python -m pip install --upgrade pip ".[test]"
+      - name: The pytest suite
+        run: python -m pytest -q
+
+  install:
+    # ⛔ THIS JOB EXISTS BECAUSE THE SUITE ABOVE CANNOT SEE THE FAILURE THAT ACTUALLY SHIPPED.
+    # Until 2026-09-27 there was no `fullcircle/__init__.py`, so `pip install .` produced a
+    # distribution named `fullcircle 0.0.0` whose import gave an implicit namespace package with
+    # `__file__ = None` and nothing importable from the top level. The tests never noticed, because
+    # they run from the checkout where every module is reachable by path. Only an INSTALL can see it.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install the package the way a stranger would
+        run: python -m pip install .
+      - name: The console command exists and answers
+        run: fullcircle --help
+      # `cd ..` on purpose: from the repo root the source tree is importable whether or not the
+      # install worked, so a doctor run there would pass on a broken wheel.
+      - name: The install verifies itself, from outside the source tree
+        run: fullcircle doctor
+        working-directory: ..
+      - name: Every module's selftest, from the INSTALLED package
+        run: fullcircle selftest
+        working-directory: ..

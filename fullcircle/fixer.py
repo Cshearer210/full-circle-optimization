@@ -27,6 +27,10 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+try:
+    from .concepts import rel_id
+except ImportError:                      # also run as a script, no parent package
+    from concepts import rel_id  # type: ignore
 
 _SKIP = {".git", "node_modules", "__pycache__", ".venv", "venv"}
 
@@ -157,7 +161,7 @@ def selftest() -> int:
                 except OSError:
                     continue
                 if "DEADCANARY" in txt:
-                    rel = os.path.relpath(p, root)
+                    rel = rel_id(p, root)
                     out.append(Finding("test", "test-cannot-fail", rel, signal="marker",
                                        method="m1", confidence=0.8, both_directions_proven=True,
                                        extra={"id_key": "dc:" + rel}))

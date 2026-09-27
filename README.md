@@ -46,9 +46,27 @@ Zero friction — it is pure Python standard library. **No dependencies, no buil
 and it makes no network calls.**
 
 ```bash
+pip install git+https://github.com/Cshearer210/full-circle-optimization
+
+fullcircle doctor              # verify THIS install actually works, before trusting it
+fullcircle run <path>          # then point it at any Python project
+```
+
+`fullcircle doctor` exists because a green CI badge tells you the *source* is fine and says nothing
+about the copy on your machine — and because a tool that audits other people's systems has no
+business asking to be trusted on its word. It checks the installed package is real rather than an
+empty namespace, that every name it publishes resolves, that an unreadable target is never reported
+as clean, and — in both directions — that it finds a planted defect in a synthetic project and
+produces fewer findings on a clean one. It exits non-zero if any of that is untrue.
+
+Working on the tool itself. Both older invocations still work unchanged:
+
+```bash
 git clone https://github.com/Cshearer210/full-circle-optimization
 cd full-circle-optimization
-python3 run_all_tests.py        # the whole proof, in one command
+python3 run_all_tests.py                      # every module's selftest, both directions
+python3 -m fullcircle run <path>              # the module form
+python3 fullcircle/orchestrator.py <path>     # the per-module script form
 ```
 
 Requires Python 3.11+.

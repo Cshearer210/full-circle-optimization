@@ -1,6 +1,50 @@
-# Tooling configuration only. The runtime package `fullcircle` is pure standard library and needs
-# no build step or install; this file just centralises the dev tools (pytest, coverage, ruff) so CI
-# and a local checkout agree. Dev-tool versions live in requirements-dev.txt.
+# ⛔ THIS FILE USED TO BE TOOLING CONFIG ONLY, and its own opening comment said the package "needs
+# no build step or install". That was true of the CODE and false of the EXPERIENCE: `pip install .`
+# produced a distribution called `fullcircle 0.0.0` with no `__init__.py`, so `import fullcircle`
+# gave an implicit namespace package with `__file__ = None`, nothing importable from the top level,
+# and no command to type. Measured 2026-09-27. "It needs no install" is not the same as "installing
+# it works", and only the second one matters to somebody who downloads it.
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "full-circle-optimization"
+version = "0.1.0"
+description = "Find what a system PROMISES but does not do -- then fix it safely, and prove the fix."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Chris Shearer" }]
+keywords = ["static-analysis", "mutation-testing", "sarif", "dead-code", "ci", "audit"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+]
+# Standard library only, and deliberately so: a tool that audits other people's systems should not
+# drag a dependency tree into them.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=7", "coverage>=7"]
+
+# ⭐ THE CONSOLE SCRIPT. There was nothing to type after installing; you had to already know to run
+# `python3 fullcircle/orchestrator.py`. `python3 -m fullcircle` and the per-module script form both
+# still work, so nothing that already used either breaks.
+[project.scripts]
+fullcircle = "fullcircle.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/Cshearer210/full-circle-optimization"
+
+[tool.setuptools]
+packages = ["fullcircle"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

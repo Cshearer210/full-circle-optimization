@@ -24,8 +24,10 @@ import os
 
 try:
     from .finding import Finding, triangulate, Triangulated, to_sarif
-except ImportError:
+    from .concepts import rel_id
+except ImportError:                      # also run as a script, where there is no parent package
     from finding import Finding, triangulate, Triangulated, to_sarif  # type: ignore
+    from concepts import rel_id  # type: ignore
 
 # build artifacts (build/, dist/, *.egg-info) are COPIES of src -- scanning them double-counts and
 # manufactures second-door duplicates. Skip them everywhere (measured on real repos 2026-09-23).
@@ -60,7 +62,7 @@ def _second_door(root: str) -> list[Finding]:
     by_inode: dict[tuple, list[str]] = {}
     by_hash: dict[str, list[str]] = {}
     for path in _walk(root, (".py",)):
-        rel = os.path.relpath(path, root)
+        rel = rel_id(path, root)
         if os.path.basename(path) == "__init__.py":
             continue
         try:
@@ -137,7 +139,7 @@ def _conflicting_definition(root: str) -> list[Finding]:
     seen: dict[str, dict[str, set]] = {}
     types: dict[str, set] = {}
     for path in _walk(root, (".py",)):
-        rel = os.path.relpath(path, root)
+        rel = rel_id(path, root)
         try:
             tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
         except (SyntaxError, ValueError, OSError):
@@ -208,7 +210,7 @@ def _unwired_function(root: str) -> list[Finding]:
     called, referenced, string_tokens = set(), set(), set()
     trees = []
     for path in _walk(root, (".py",)):
-        rel = os.path.relpath(path, root)
+        rel = rel_id(path, root)
         try:
             tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
         except (SyntaxError, ValueError, OSError):
@@ -309,7 +311,7 @@ def _stub_implementation(root: str) -> list[Finding]:
     A stub nobody calls yet is a single-method lead. @abstractmethod stubs are skipped by design."""
     called, defs, methods = set(), [], set()
     for path in _walk(root, (".py",)):
-        rel = os.path.relpath(path, root)
+        rel = rel_id(path, root)
         try:
             tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
         except (SyntaxError, ValueError, OSError):
@@ -369,7 +371,7 @@ def _dead_code(root: str) -> list[Finding]:
     it can never run. Fix: remove it, or fix the control flow that made it unreachable."""
     out = []
     for path in _walk(root, (".py",)):
-        rel = os.path.relpath(path, root)
+        rel = rel_id(path, root)
         try:
             tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
         except (SyntaxError, ValueError, OSError):
@@ -399,7 +401,7 @@ def _unused_import(root: str) -> list[Finding]:
     """An imported name never referenced in the file. Fix: remove it (or actually use it)."""
     out = []
     for path in _walk(root, (".py",)):
-        rel = os.path.relpath(path, root)
+        rel = rel_id(path, root)
         if os.path.basename(path) == "__init__.py":       # __init__ re-exports; do not flag
             continue
         try:
@@ -453,7 +455,7 @@ def _mutable_default(root: str) -> list[Finding]:
     accumulates state. Fix: default to None and build the container inside the function."""
     out = []
     for path in _walk(root, (".py",)):
-        rel = os.path.relpath(path, root)
+        rel = rel_id(path, root)
         try:
             tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
         except (SyntaxError, ValueError, OSError):
@@ -479,7 +481,7 @@ def _bare_except(root: str) -> list[Finding]:
     Ctrl-C and a clean exit get swallowed. Fix: catch `Exception`, or the specific error(s)."""
     out = []
     for path in _walk(root, (".py",)):
-        rel = os.path.relpath(path, root)
+        rel = rel_id(path, root)
         try:
             tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
         except (SyntaxError, ValueError, OSError):
@@ -500,7 +502,7 @@ def _resource_leak(root: str) -> list[Finding]:
     the file descriptor leaks. Fix: use `with open(...) as f:`, or close it in a finally."""
     out = []
     for path in _walk(root, (".py",)):
-        rel = os.path.relpath(path, root)
+        rel = rel_id(path, root)
         try:
             tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
         except (SyntaxError, ValueError, OSError):
@@ -532,7 +534,7 @@ def _shadowed_builtin(root: str) -> list[Finding]:
     module then breaks. Fix: rename. (Function-local shadowing is skipped -- it is common and scoped.)"""
     out = []
     for path in _walk(root, (".py",)):
-        rel = os.path.relpath(path, root)
+        rel = rel_id(path, root)
         try:
             tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
         except (SyntaxError, ValueError, OSError):
