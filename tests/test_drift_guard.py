@@ -55,7 +55,23 @@ def test_companion_dirs_empty_env(monkeypatch):
 
 
 def test_rel_paths_joins_filename_onto_each_dir():
-    assert _rel_paths("finding.py", ["/x", "/y"]) == ["/x/finding.py", "/y/finding.py"]
+    """`_rel_paths` builds FILESYSTEM paths, so the platform's own separator is correct.
+
+    ⛔ THIS ASSERTION USED TO EXPECT `["/x/finding.py", "/y/finding.py"]` -- forward slashes, hard
+    coded. On Windows `os.path.join` returns `/x\\finding.py`, so it went red there and only there,
+    and it stayed green on Linux and macOS whatever the code did. Caught 2026-09-27 when the matrix
+    gained Windows.
+
+    ⭐ AND THE FIX IS THE OPPOSITE OF THE ONE THE SAME DAY'S OTHER FAILURE NEEDED, which is the whole
+    point of the distinction: `by_dir`'s keys in rag-graph-surgeon are IDENTIFIERS and had to be
+    normalised to forward slash; these values are handed to `os.path.exists()` and `open()`, so they
+    belong to the platform and must NOT be normalised. Same function, opposite requirement, decided
+    by what the value is FOR.
+    """
+    # path-id: ok -- these are filesystem paths passed to os.path.exists/open, never keyed or
+    # published, so the platform's separator is the correct expectation here.
+    assert _rel_paths("finding.py", ["/x", "/y"]) == [os.path.join("/x", "finding.py"),
+                                                      os.path.join("/y", "finding.py")]
 
 
 def test_shared_files_lists_both_contract_files():
