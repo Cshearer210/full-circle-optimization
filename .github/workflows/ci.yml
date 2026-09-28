@@ -1,8 +1,20 @@
 name: CI
 
 on:
+  # ⛔ PUSHES ONLY ON main, AND THE REASON IS MEASURED. With a bare `push:` every commit
+  # on a branch that has an open pull request ran this whole matrix TWICE -- once for the
+  # push and once for the pull_request -- so a single mistake sent TWO failure emails and
+  # burned double the minutes. A branch with a PR is already covered by the PR run; main
+  # keeps its own run so a merge is still checked.
   push:
+    branches: [main]
   pull_request:
+
+# ⛔ LEAST PRIVILEGE, SET EXPLICITLY. Without this block GitHub hands every job a token with
+# WRITE access to this repository, so any dependency that runs during a build -- a test plugin, a
+# transitive package -- could push a commit. Nothing here needs to write anything.
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -17,9 +29,9 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Every module's own selftest, both directions (no install needed)
@@ -42,8 +54,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.11", "3.13"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install the package the way a stranger would
@@ -58,3 +70,54 @@ jobs:
       - name: Every module's selftest, from the INSTALLED package
         run: fullcircle selftest
         working-directory: ..
+
+  security:
+    # ⛔ A DEPENDENCY AUDIT, RUN ON EVERY PUSH. A tool whose job is finding defects that hide is
+    # not allowed to ship with a known-vulnerable dependency chain; and the honest place to learn
+    # that is here, on every change, rather than from whoever downloads it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.13"
+      - name: Install this package and the auditor
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . pip-audit
+      - name: Audit the installed dependency chain
+        # ⛔ THREE OUTCOMES, THREE EXIT CODES -- the same law this tool enforces on other
+        # people's code, applied to its own CI. An ADVISORY fails the job. A clean audit passes
+        # it. And "the advisory service did not answer" is NEITHER: PyPI returned
+        # `503 Backend is unhealthy` on 2026-09-28 and the job went red, which on the repo page
+        # is indistinguishable from a vulnerability. A check that goes red during somebody
+        # else's outage is the permanently-firing check that teaches everyone to ignore it.
+        #
+        # ⛔ AND UNKNOWN IS NOT PERMISSIVE: a real advisory still fails on the FIRST attempt.
+        # Only a service-level error is retried, and only a service-level error can end in the
+        # warning -- decided on the error pip-audit itself reports, never on the exit code,
+        # because a finding and an outage both exit 1.
+        #
+        # ⛔ NO `--strict` EITHER: it fails when pip-audit cannot RESOLVE a package on PyPI, and
+        # this package is not published, so it reported "not found on PyPI" as if it were a
+        # finding. Without the flag a real advisory still exits non-zero.
+        shell: bash
+        run: |
+          set -o pipefail
+          for attempt in 1 2 3; do
+            if out=$(python -m pip_audit --progress-spinner off 2>&1); then
+              echo "$out"
+              echo "audit: CLEAN"
+              exit 0
+            fi
+            echo "$out"
+            if echo "$out" | grep -qE 'ServiceError|503|Backend is unhealthy|Max retries|Temporary failure in name resolution'; then
+              echo "the advisory service did not answer (attempt $attempt of 3)"
+              sleep 20
+              continue
+            fi
+            echo "audit: FOUND SOMETHING -- read the report above"
+            exit 1
+          done
+          echo "::warning title=Dependency audit could not run::pip-audit could not reach the advisory service after 3 attempts. This is UNKNOWN, not clean -- no audit happened."
+          exit 0

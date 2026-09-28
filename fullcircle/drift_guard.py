@@ -24,7 +24,11 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # The shared-contract files whose companion copies (if any) must match the canonical in-repo copy.
-SHARED_FILES = ["finding.py", "concepts.py"]
+# ⭐ `fixer.py` JOINED THIS LIST 2026-09-28. Its canonical home is sandbox-fan-out, whose
+# whole job is repairing what another tool located; this repo carries a copy so it still
+# installs and runs alone. Listing it here is what makes the copy safe: edit one and this
+# guard fails until the other matches.
+SHARED_FILES = ["finding.py", "concepts.py", "fixer.py"]
 
 
 def _companion_dirs() -> list[str]:

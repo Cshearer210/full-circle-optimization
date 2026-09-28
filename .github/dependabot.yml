@@ -5,6 +5,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      # ⛔ ONE PR, NOT EIGHT. Ungrouped, dependabot opened a separate pull request per dependency
+      # -- eight at once on 2026-09-27 -- each running the full multi-OS matrix and each capable
+      # of failing on its own. Grouping makes it one PR, one matrix, one verdict to read.
+      all-updates:
+        patterns: ["*"]
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
@@ -14,6 +20,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      # ⛔ ONE PR, NOT EIGHT. Ungrouped, dependabot opened a separate pull request per dependency
+      # -- eight at once on 2026-09-27 -- each running the full multi-OS matrix and each capable
+      # of failing on its own. Grouping makes it one PR, one matrix, one verdict to read.
+      all-updates:
+        patterns: ["*"]
     labels:
       - "dependencies"
       - "github-actions"
