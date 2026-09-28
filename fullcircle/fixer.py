@@ -89,7 +89,7 @@ def _diff(before: dict[str, bytes], after: dict[str, bytes]):
 
 
 def apply_fixes(root, findings, patch_provider, finder, *, dry_run=True,
-                min_confidence=0.6, require_corroborated=True) -> dict:
+                min_confidence=0.6, require_corroborated=True, on_verified=None) -> dict:
     """Repair located defects safely. Returns a report; writes nothing unless dry_run=False.
 
     root            the system to repair.
@@ -98,6 +98,12 @@ def apply_fixes(root, findings, patch_provider, finder, *, dry_run=True,
                     clone and says whether it changed anything. It may be mechanical or a model.
     finder          finder(dir) -> findings. Run again after each patch, to verify BOTH
                     directions. This is what makes a wrong fix impossible to land.
+    on_verified     on_verified(finding, changed, deleted), called once per repair that PASSED
+                    verification, with the exact bytes that would be written. This is how a
+                    verified repair leaves the machine that produced it -- a bundle handed to
+                    somebody else, or a review before it lands. It is a plain callable and the
+                    engine imports nothing for it. Collecting changes nothing: a dry run stays a
+                    dry run.
     """
     # check 3: disjoint -- one attempt per identity, highest-trust first
     seen, queue = set(), []
@@ -140,6 +146,14 @@ def apply_fixes(root, findings, patch_provider, finder, *, dry_run=True,
                 continue
             changed, deleted = _diff(_snapshot(root), _snapshot(work))
             staged.append((t.identity, changed, deleted))
+            if on_verified is not None:
+                # ⛔ A CALLBACK THAT RAISES MUST NOT LOSE THE REPAIR. Handing the work over is not
+                # part of verifying it, so a broken consumer is recorded and the engine carries on
+                # -- otherwise somebody's logging bug silently drops a fix that was already proven.
+                try:
+                    on_verified(t, changed, deleted)
+                except Exception as e:
+                    results.append((t.identity, "handover-error", str(e)[:80]))
             results.append((t.identity, "verified", "%d file(s) changed, %d deleted"
                             % (len(changed), len(deleted))))
         finally:

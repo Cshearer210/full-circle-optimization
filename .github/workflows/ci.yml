@@ -1,7 +1,13 @@
 name: CI
 
 on:
+  # ⛔ PUSHES ONLY ON main, AND THE REASON IS MEASURED. With a bare `push:` every commit
+  # on a branch that has an open pull request ran this whole matrix TWICE -- once for the
+  # push and once for the pull_request -- so a single mistake sent TWO failure emails and
+  # burned double the minutes. A branch with a PR is already covered by the PR run; main
+  # keeps its own run so a merge is still checked.
   push:
+    branches: [main]
   pull_request:
 
 # ⛔ LEAST PRIVILEGE, SET EXPLICITLY. Without this block GitHub hands every job a token with
