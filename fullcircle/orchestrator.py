@@ -40,6 +40,41 @@ def _partition(tri: list[Triangulated]):
     return auto, review
 
 
+def build_fixer_hook(finders):
+    """The ONE construction of the --fix hook, so both entry points get the same behaviour.
+
+    ⛔ WHY THIS IS A FUNCTION AND NOT EIGHT LINES INSIDE A `__main__` BLOCK. Until 2026-09-28 the
+    hook was built only inside `orchestrator.py`'s own `if __name__ == "__main__"` block, and the
+    INSTALLED command (`fullcircle`, which routes through `__main__.py`) never built one. So
+    `fullcircle run <path> --fix` -- the second line of this tool's own usage text -- parsed the
+    flag nowhere, applied nothing, printed no warning and exited 1 as though it had worked.
+
+    ⭐ THE REPO WHOSE STATED PURPOSE IS "find what a system PROMISES but does not do" was itself
+    promising a repair it did not perform. It was caught by the composed sandbox run in
+    sandbox-fan-out (`proving-ground/composed_run.py`), which plants a function referenced by
+    nothing and asks the two harder questions: did the dead one GO, and did the live one STAY.
+    Neither module's own selftest could see it -- `patches.selftest()` passes, `fixer`'s 16 tests
+    pass, and the wiring between them and the installed command was the missing piece. That is
+    `nothing-ships-unwired.md` laws 13-15: one definition, many readers.
+    """
+    try:
+        from . import fixer as _fx, patches as _pt
+    except ImportError:                                  # when run as a script, not a package
+        import fixer as _fx, patches as _pt              # type: ignore
+
+    def _combined(dir_):
+        raw = []
+        for f in finders:
+            raw.extend(f(dir_))
+        return triangulate(raw)
+
+    def hook(auto, root):
+        rep = _fx.apply_fixes(root, auto, _pt.dispatch, _combined, dry_run=False)
+        return len(rep["applied"])
+
+    return hook
+
+
 def run(root, finders, fixer=None, max_rounds=2) -> dict:
     """Run the pipeline. `finders`: list of callable(root)->list[Finding]. `fixer`: optional
     callable(list[Triangulated], root)->int applied between rounds (SANDBOX-FAN-OUT in production)."""
@@ -188,22 +223,9 @@ if __name__ == "__main__":
         sys.exit(selftest())
     target = [a for a in sys.argv[1:] if not a.startswith("-")][0]
     finders = _wire_real_finders()
-    fixer_hook = None
-    if "--fix" in sys.argv:                               # apply only SAFE mechanical fixes
-        try:
-            from . import fixer as _fx, patches as _pt
-        except ImportError:
-            import fixer as _fx, patches as _pt          # type: ignore
-
-        def _combined(dir_):
-            raw = []
-            for f in finders:
-                raw.extend(f(dir_))
-            return triangulate(raw)
-
-        def fixer_hook(auto, root):                       # noqa: F811  (matches run()'s fixer sig)
-            rep = _fx.apply_fixes(root, auto, _pt.dispatch, _combined, dry_run=False)
-            return len(rep["applied"])
+    # ⭐ ONE construction, shared with `__main__.py` -- see build_fixer_hook's own note for the
+    # defect that came of having two. The eight lines that used to sit here were the ONLY copy.
+    fixer_hook = build_fixer_hook(finders) if "--fix" in sys.argv else None
     rep = run(target, finders, fixer=fixer_hook)
     for rd in rep["rounds"]:
         print("round %(round)d: %(total)d findings (%(new)d new, %(corroborated)d corroborated, "

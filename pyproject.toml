@@ -38,7 +38,14 @@ test = ["pytest>=7", "coverage>=7"]
 # `python3 fullcircle/orchestrator.py`. `python3 -m fullcircle` and the per-module script form both
 # still work, so nothing that already used either breaks.
 [project.scripts]
-fullcircle = "fullcircle.__main__:main"
+# ⛔ IT POINTS AT `cli`, NOT `main`, SINCE 2026-09-28 -- AND THE DIFFERENCE IS A BUG, NOT STYLE.
+# `main` lets an internal exception escape, and an escaping exception makes the interpreter exit 1,
+# which is this tool's own documented code for "it looked, and found something". So a TypeError
+# inside `--sarif` wrote a zero-byte file and exited with the code for a successful finding: a CI
+# job, a test asserting "nonzero means findings", and a person skimming a terminal each read it as
+# a working run. `cli` catches it and returns 2 (COULD NOT TELL). `main` stays
+# exception-transparent on purpose, so the test suite sees real tracebacks instead of exit codes.
+fullcircle = "fullcircle.__main__:cli"
 
 [project.urls]
 Repository = "https://github.com/Cshearer210/full-circle-optimization"
