@@ -3,6 +3,7 @@
 **One pass that runs several independent code-health finders as a team and trusts a defect only when two of them agree — so it holds up on a codebase it has never seen.**
 
 [![CI](https://github.com/Cshearer210/full-circle-optimization/actions/workflows/ci.yml/badge.svg)](https://github.com/Cshearer210/full-circle-optimization/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/full-circle-optimization.svg)](https://pypi.org/project/full-circle-optimization/)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)
@@ -24,7 +25,7 @@ Every line on screen is the real output of a command that really ran, with its r
 
 ```bash
 python3 -m pytest -q        # 239 passed
-fullcircle doctor           # 5 checks, and it exits non-zero if any of them is untrue
+fullcircle doctor           # 4 checks, and it exits non-zero if any of them is untrue
 ```
 
 The tests that earn their place here are the ones that plant a defect and then assert the repair
@@ -73,7 +74,7 @@ Zero friction — it is pure Python standard library. **No dependencies, no buil
 and it makes no network calls.**
 
 ```bash
-pip install git+https://github.com/Cshearer210/full-circle-optimization
+pip install full-circle-optimization
 
 fullcircle doctor              # verify THIS install actually works, before trusting it
 fullcircle run <path>          # then point it at any Python project
