@@ -7,6 +7,19 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)
 
+## See it work
+
+![full-circle-optimization finding and repairing a planted defect](https://raw.githubusercontent.com/Cshearer210/full-circle-optimization/main/assets/demo.gif)
+
+22 seconds, and the target is built on camera rather than being a fixture you have to trust: a
+package with one function referenced by nothing and two that really are used. It finds the dead
+one, repairs it, and then shows the beat that actually matters — **the dead function is gone AND
+the live ones are still there.** A repair tool that deletes working code passes every "did it
+change anything" check, so that is the only question worth filming.
+
+Every line on screen is the real output of a command that really ran, with its real exit code.
+[Full quality MP4](assets/demo.mp4).
+
 ## Why it exists
 
 The dangerous defects in generated code are the *quiet* ones: a test that runs but asserts nothing,
