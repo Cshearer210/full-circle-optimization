@@ -1,0 +1,84 @@
+name: Publish to PyPI
+
+# Publishes ONLY when a GitHub release is published -- never on a push. Uses PyPI trusted
+# publishing (OIDC) by default, so no long-lived token has to exist anywhere to leak.
+#
+# ⭐ ADAPTED FROM claimproof's publish.yml ON 2026-10-03, WHICH IS THE ONLY ONE OF THESE FOUR REPOS
+# THAT HAS EVER PUBLISHED SUCCESSFULLY -- so it carries fixes that were paid for rather than
+# guessed at. Three of them cost a failed publish there and none is obvious:
+#
+#   1  `workflow_dispatch` exists because re-running a FAILED publish uses the workflow as it
+#      existed AT THE TAG, which predates the fix being re-run. Without it, correcting a
+#      publishing problem costs a whole new release.
+#   2  A job-level `permissions:` block REPLACES the top-level one rather than merging with it,
+#      which is why the publish job restates `contents: read` beside `id-token: write`.
+#   3  The `secrets` context is NOT readable in a step's `if:` -- it evaluates empty there, so a
+#      token branch guarded that way never fires and the failure reads as "trusted publishing is
+#      broken". Job-level `env` CAN read secrets, so the check is computed once there.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build the wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build
+      - run: python -m build
+
+      # ⛔ THE WHEEL THAT GETS UPLOADED IS THE WHEEL THAT GOT SMOKE-TESTED, and the smoke test is
+      # the one that caught the defect this repo shipped with on 2026-09-27: there was no
+      # `__init__.py`, so `pip install` succeeded, `import fullcircle` succeeded as an implicit
+      # NAMESPACE package with `__file__ = None`, nothing was importable and no command existed.
+      # Green CI could not see it. `fullcircle doctor` check 1 is that exact failure, named -- so
+      # running it here, from a NEUTRAL directory, is what stops it shipping twice.
+      - name: the built wheel installs, imports and knows its own version
+        run: |
+          python -m pip install dist/*.whl
+          cd "$(mktemp -d)"
+          python -c "import fullcircle as m; print('installs as', getattr(m, '__version__', 'unversioned'))"
+          fullcircle doctor
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    name: publish to PyPI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read    # restated: a job-level block REPLACES the top-level one
+      id-token: write   # trusted publishing: a short-lived identity proof, no stored secret
+    env:
+      HAS_TOKEN: ${{ secrets.PYPI_API_TOKEN != '' }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist/
+
+      # Whichever credential is configured wins, and the step NAME says which ran, so nobody has
+      # to guess afterwards.
+      - name: Publish with an API token
+        if: env.HAS_TOKEN == 'true'
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: true
+
+      - name: Publish with trusted publishing (no token configured)
+        if: env.HAS_TOKEN != 'true'
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          skip-existing: true
