@@ -20,6 +20,20 @@ change anything" check, so that is the only question worth filming.
 Every line on screen is the real output of a command that really ran, with its real exit code.
 [Full quality MP4](assets/demo.mp4).
 
+**239 tests pass** — measured 2026-10-04, and reproducible by anyone in about three seconds:
+
+```bash
+python3 -m pytest -q        # 239 passed
+fullcircle doctor           # 5 checks, and it exits non-zero if any of them is untrue
+```
+
+The tests that earn their place here are the ones that plant a defect and then assert the repair
+**removed the dead code and left the live code alone** — not that it ran, and not that the file
+changed. A fixer is only as trustworthy as the test that proves it does not over-reach.
+
+That count is checked against the real suite rather than trusted: if the number here and the number
+the suite reports ever disagree, the pre-ship gate refuses the push.
+
 ## Why it exists
 
 The dangerous defects in generated code are the *quiet* ones: a test that runs but asserts nothing,
